@@ -1,0 +1,30 @@
+<launch>
+  <!-- EuRoC Live Topics Visual Odometry -->
+  <!-- For use with manually played EuRoC bags -->
+  
+  <arg name="config_path" default="$(find air_slam)/configs/visual_odometry/vo_euroc.yaml" />
+  <arg name="camera_config_path" default="$(find air_slam)/configs/camera/euroc.yaml" />
+  <arg name="model_dir" default="$(find air_slam)/output" />
+  <arg name="saving_dir" default="$(find air_slam)/debug" />
+  
+  <!-- AirSLAM Live Visual Odometry with EuRoC topics -->
+  <node name="visual_odometry_live" pkg="air_slam" type="visual_odometry_live" output="screen">
+    <param name="config_path" type="string" value="$(arg config_path)" />
+    <param name="camera_config_path" type="string" value="$(arg camera_config_path)" />
+    <param name="model_dir" type="string" value="$(arg model_dir)" />
+    <param name="saving_dir" type="string" value="$(arg saving_dir)" />
+    <param name="use_live_topics" type="bool" value="true" />
+    
+    <!-- EuRoC Topic Names -->
+    <param name="left_image_topic" type="string" value="/cam0/image_raw" />
+    <param name="right_image_topic" type="string" value="/cam1/image_raw" />
+    <param name="imu_topic" type="string" value="/imu0" />
+  </node>
+
+  <!-- RViz Visualization -->
+  <arg name="visualization" default="true" />
+  <group if="$(arg visualization)">
+    <node name="rviz" pkg="rviz" type="rviz" args="-d $(find air_slam)/rviz/vo.rviz" output="screen" />
+  </group>
+  
+</launch>

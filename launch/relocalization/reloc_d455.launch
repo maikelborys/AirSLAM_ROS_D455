@@ -1,0 +1,41 @@
+<launch>
+  <!-- D455 Relocalization Launch File -->
+  <!-- Real-time localization using pre-built map from D455 visual odometry -->
+  
+  <arg name="config_path" default="$(find air_slam)/configs/relocalization/reloc_d455.yaml" />
+  <arg name="camera_config_path" default="$(find air_slam)/configs/camera/realsense_848_480.yaml" />
+  <arg name="model_dir" default="$(find air_slam)/output" />
+  <arg name="map_root" default="$(find air_slam)/debug" />
+  <arg name="voc_path" default="$(find air_slam)/voc/point_voc_L4.bin" />
+  <arg name="traj_path" default="$(find air_slam)/debug/relocalization_d455.txt" />
+  
+  <!-- Topic configuration for D455 -->
+  <arg name="left_image_topic" default="/camera/camera/infra1/image_rect_raw" />
+  <arg name="right_image_topic" default="/camera/camera/infra2/image_rect_raw" />
+  <arg name="imu_topic" default="/camera/camera/imu" />
+
+  <!-- Relocalization node -->
+  <node name="relocalization_live" pkg="air_slam" type="relocalization_live" output="screen">
+    <!-- Configuration files -->
+    <param name="config_path" type="string" value="$(arg config_path)" />
+    <param name="camera_config_path" type="string" value="$(arg camera_config_path)" />
+    <param name="model_dir" type="string" value="$(arg model_dir)" />
+    <param name="map_root" type="string" value="$(arg map_root)" />
+    <param name="voc_path" type="string" value="$(arg voc_path)" />
+    <param name="traj_path" type="string" value="$(arg traj_path)" />
+    
+    <!-- Live topic mode -->
+    <param name="use_live_topics" type="bool" value="true" />
+    
+    <!-- D455 topic names -->
+    <param name="left_image_topic" type="string" value="$(arg left_image_topic)" />
+    <param name="right_image_topic" type="string" value="$(arg right_image_topic)" />
+    <param name="imu_topic" type="string" value="$(arg imu_topic)" />
+  </node>
+
+  <!-- RViz visualization -->
+  <arg name="visualization" default="true" />
+  <group if="$(arg visualization)">
+    <node name="rviz" pkg="rviz" type="rviz" args="-d $(find air_slam)/rviz/relocalization.rviz" output="screen" />
+  </group>
+</launch>

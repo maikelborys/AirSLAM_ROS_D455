@@ -1,0 +1,43 @@
+# Relocalization Configuration for Intel RealSense D455
+# Adapted from reloc_euroc.yaml for D455 characteristics
+
+min_inlier_num: 45
+pose_refinement: 1 # if true, the localization will be more stable but slower. 
+
+plnet:
+  use_superpoint: 0
+  max_keypoints: 400            # Match D455 VO settings for consistency
+  keypoint_threshold: 0.004     # Same as D455 VO for feature consistency
+  remove_borders: 4 
+  line_threshold: 0.75          # Tuned for D455 IR images (vs 0.8 for EuRoC)
+  line_length_threshold: 50     # Match D455 VO settings
+
+point_matcher:
+  matcher: 0                    # 0 for lightglue, 1 for superglue
+  image_width: 848              # D455 IR resolution
+  image_height: 480             # D455 IR resolution
+  onnx_file: "superpoint_lightglue.onnx"
+  engine_file: "superpoint_lightglue.engine"
+
+pose_estimation:
+  mono_point: 50
+  stereo_point: 75
+  mono_line: 50
+  stereo_line: 75
+  rate: 0.5
+
+ros_publisher:
+  feature: 1                    # Enable for visualization
+  feature_topic: "/AirSLAM/feature"
+  frame_pose: 1                 # Enable for real-time pose
+  frame_pose_topic: "/AirSLAM/frame_pose"
+  frame_odometry_topic: "/AirSLAM/LatestOdometry"
+  keyframe: 1                   # Show keyframes
+  keyframe_topic: "/AirSLAM/keyframe"
+  path_topic: "/AirSLAM/odometry"
+  map: 1                        # Show loaded map
+  map_topic: "/AirSLAM/map"
+  mapline: 1                    # Show map lines
+  mapline_topic: "/AirSLAM/mapline"
+  reloc: 1                      # Enable relocalization visualization
+  reloc_topic: "/AirSLAM/reloc"

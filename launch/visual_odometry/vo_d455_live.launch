@@ -1,0 +1,45 @@
+<launch>
+  <!-- Live D455 Visual Odometry Launch File -->
+  <!-- This launch file runs AirSLAM with live ROS topics from D455 camera -->
+  
+  <arg name="config_path" default="$(find air_slam)/configs/visual_odometry/vo_realsense.yaml" />
+  <arg name="camera_config_path" default="$(find air_slam)/configs/camera/realsense_848_480.yaml" />
+  <arg name="model_dir" default="$(find air_slam)/output" />
+  <arg name="saving_dir" default="$(find air_slam)/debug" />
+  
+  <!-- Topic configuration -->
+  <arg name="left_image_topic" default="/camera/camera/infra1/image_rect_raw" />
+  <arg name="right_image_topic" default="/camera/camera/infra2/image_rect_raw" />
+  <arg name="imu_topic" default="/camera/camera/imu" />
+  
+  <!-- Launch the live visual odometry node -->
+  <node name="visual_odometry_live" pkg="air_slam" type="visual_odometry_live" output="screen">
+    <!-- Configuration files -->
+    <param name="config_path" type="string" value="$(arg config_path)" />
+    <param name="camera_config_path" type="string" value="$(arg camera_config_path)" />
+    <param name="model_dir" type="string" value="$(arg model_dir)" />
+    <param name="saving_dir" type="string" value="$(arg saving_dir)" />
+    
+    <!-- NEW: Enable live topic mode -->
+    <param name="use_live_topics" type="bool" value="true" />
+    
+    <!-- NEW: Topic names -->
+    <param name="left_image_topic" type="string" value="$(arg left_image_topic)" />
+    <param name="right_image_topic" type="string" value="$(arg right_image_topic)" />
+    <param name="imu_topic" type="string" value="$(arg imu_topic)" />
+  </node>
+
+  <!-- Launch RViz for visualization -->
+  <arg name="visualization" default="true" />
+  <group if="$(arg visualization)">
+    <node name="rviz" pkg="rviz" type="rviz" args="-d $(find air_slam)/rviz/vo.rviz" output="screen" />
+  </group>
+  
+  <!-- Information -->
+  <node name="info_publisher" pkg="air_slam" type="visual_odometry_live" output="screen" if="false">
+    <remap from="/rosout" to="/air_slam_info" />
+  </node>
+  
+</launch>
+
+

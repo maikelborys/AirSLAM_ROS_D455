@@ -22,14 +22,16 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   sensor_msgs
   tf
+  message_filters  # NEW: Added for stereo synchronization
 )
 
-find_package(OpenCV 4.2 REQUIRED)
+find_package(OpenCV 4.7 REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(CUDA REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(Boost REQUIRED)
 find_package(G2O REQUIRED)
+find_package(Ceres REQUIRED)
 find_package(Gflags REQUIRED)
 find_package(Glog REQUIRED)
 
@@ -49,6 +51,7 @@ include_directories(
   ${Boost_INCLUDE_DIRS}
   ${catkin_INCLUDE_DIRS}
   ${G2O_INCLUDE_DIR}
+  ${CERES_INCLUDE_DIRS}
   ${GFLAGS_INCLUDE_DIRS} 
   ${GLOG_INCLUDE_DIRS}
 )
@@ -85,6 +88,7 @@ add_library(${PROJECT_NAME}_lib SHARED
   src/map_user.cc
   src/timer.cc
   src/debug.cc
+  src/ros_dataset.cc  # NEW: ROS topic-based dataset
 )
 
 target_link_libraries(${PROJECT_NAME}_lib
@@ -94,6 +98,7 @@ target_link_libraries(${PROJECT_NAME}_lib
   ${CUDA_LIBRARIES}
   ${Boost_LIBRARIES}
   ${G2O_LIBRARIES}
+  ${CERES_LIBRARIES}
   ${GFLAGS_LIBRARIES} 
   ${GLOG_LIBRARIES}
   yaml-cpp
@@ -113,3 +118,11 @@ target_link_libraries(relocalization ${PROJECT_NAME}_lib ${catkin_LIBRARIES})
 
 add_executable(test_feature demo/test_feature.cpp)
 target_link_libraries(test_feature ${PROJECT_NAME}_lib ${catkin_LIBRARIES})
+
+# NEW: Live topic-based visual odometry
+add_executable(visual_odometry_live demo/visual_odometry_live.cpp)
+target_link_libraries(visual_odometry_live ${PROJECT_NAME}_lib ${catkin_LIBRARIES})
+
+# NEW: Live topic-based relocalization/localization
+add_executable(relocalization_live demo/relocalization_live.cpp)
+target_link_libraries(relocalization_live ${PROJECT_NAME}_lib ${catkin_LIBRARIES})
