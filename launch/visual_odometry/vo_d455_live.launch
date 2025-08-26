@@ -8,9 +8,14 @@
   <arg name="saving_dir" default="$(find air_slam)/debug" />
   
   <!-- Topic configuration -->
-  <arg name="left_image_topic" default="/camera/camera/infra1/image_rect_raw" />
+  <!-- <arg name="left_image_topic" default="/camera/camera/infra1/image_rect_raw" />
   <arg name="right_image_topic" default="/camera/camera/infra2/image_rect_raw" />
-  <arg name="imu_topic" default="/camera/camera/imu" />
+  <arg name="imu_topic" default="/camera/camera/imu" /> 
+  <arg name="left_image_topic" default="/infra1/image_rect_raw" />
+  <arg name="right_image_topic" default="/infra2/image_rect_raw" /> -->
+  <arg name="left_image_topic" default="/camera0/realsense_splitter_node/output/infra_1" />
+  <arg name="right_image_topic" default="/camera0/realsense_splitter_node/output/infra_2" />
+  <arg name="imu_topic" default="/camera0/imu" />
   
   <!-- Launch the live visual odometry node -->
   <node name="visual_odometry_live" pkg="air_slam" type="visual_odometry_live" output="screen">
