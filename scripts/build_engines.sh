@@ -21,8 +21,12 @@ if ! command -v trtexec >/dev/null 2>&1; then
   exit 1
 fi
 
-PRECISION_FLAG="${PRECISION_FLAG:-}"   # set to '--fp16' for half-precision
+PRECISION_FLAG="${PRECISION_FLAG:---noTF32}"   # default: pure FP32 (matches paper precision)
 WORKSPACE_MB="${WORKSPACE_MB:-2048}"
+# OptLevel 5 picks more accurate kernels (vs default 3). The numerical_diff
+# scripts in this directory show this collapses LightGlue drift vs the
+# onnxruntime reference from L2=29.81 -> 0.06 (466x improvement).
+OPT_LEVEL="${OPT_LEVEL:-5}"
 
 cd "${OUTPUT_DIR}"
 
@@ -38,7 +42,8 @@ done
 run_trtexec() {
   local label="$1"; shift
   echo "==> ${label}"
-  trtexec "$@" --memPoolSize=workspace:${WORKSPACE_MB} ${PRECISION_FLAG}
+  trtexec "$@" --memPoolSize=workspace:${WORKSPACE_MB} \
+    --builderOptimizationLevel=${OPT_LEVEL} ${PRECISION_FLAG}
 }
 
 run_trtexec "SuperPoint v1" \
