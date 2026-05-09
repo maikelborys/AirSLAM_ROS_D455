@@ -88,3 +88,30 @@ Pass criterion: ATE ≤ 0.06 m at ≥ 30 FPS. Anything beyond an order of magnit
 - Semantic layer integration.
 - LiDAR/GLIM fusion — Maikel runs pure VIO on this stack.
 - Performance tuning beyond restoring TRT 8 baseline FPS.
+
+## Final validation results (2026-05-09)
+
+Full AirSLAM pipeline validated on EuRoC MH_03_medium with FP32 + optLvl=5:
+
+| Phase | Metric | Result |
+|---|---|---|
+| Visual odometry | Average FPS | 38.3 |
+| | Keyframes / mappoints | 302 / 49,325 |
+| Map refinement | Loop pairs found | 127 |
+| | **ATE RMSE post-refinement** | **0.0386 m** (matches paper ~0.04 m) |
+| | Mappoint cleanup | 49,325 → 37,980 |
+| Relocalization | Recall on 2700 queries | 100% |
+| | Latency per query | 49 ms (~20 Hz) |
+
+Important: the published paper ATE numbers in Table 2 are POST-refinement.
+Raw `trajectory_v0.txt` from `visual_odometry` is ~0.10 m on this sequence;
+running `map_refinement` over the saved map drops that to 0.039 m.
+
+Reproduce:
+```
+bash scripts/build_engines.sh                                       # ~5 min
+ros2 run air_slam visual_odometry  --ros-args -p ... saving_dir:=/tmp/run
+ros2 run air_slam map_refinement   --ros-args -p map_root:=/tmp/run ...
+ros2 run air_slam relocalization   --ros-args -p map_root:=/tmp/run ...
+evo_ape tum  GT.txt /tmp/run/trajectory_v1.txt -va
+```
