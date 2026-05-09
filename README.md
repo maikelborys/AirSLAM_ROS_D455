@@ -1,4 +1,8 @@
-<h1 align="center">AirSLAM — ROS 2 Jazzy + TensorRT 10 port</h1>
+<h1 align="center">AirSLAM ROS2 (VIO)</h1>
+
+<p align="center">
+    <em>ROS 2 Jazzy + TensorRT 10 port — stereo + IMU visual-inertial SLAM, no LiDAR.</em>
+</p>
 
 <p align="center">
     <em>Fork of <a href="https://github.com/sair-lab/AirSLAM">sair-lab/AirSLAM</a> (TRO 2025) ported to Ubuntu 24.04 / ROS 2 Jazzy / TensorRT 10.</em>
