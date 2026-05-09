@@ -1029,15 +1029,19 @@ void MapRefiner::SaveFinalMap(std::string map_root){
 }
 
 void MapRefiner::PubMap(){
-  ros::Rate loop_rate(5); 
-  while(ros::ok() && !_stop){
+  // ROS 2 port: rclcpp::Rate replaces ros::Rate, std::chrono now() replaces
+  // ros::Time::now(), and rclcpp::spin* is a no-op here because we publish
+  // synchronously through ThreadPublishers in RosPublisher.
+  rclcpp::Rate loop_rate(5);
+  while(rclcpp::ok() && !_stop){
     _map_mutex.lock();
     if(_map_ready){
-      _map->Publish(ros::Time::now().toSec(), true);
+      const double t = std::chrono::duration<double>(
+          std::chrono::system_clock::now().time_since_epoch()).count();
+      _map->Publish(t, true);
     }
     _map_mutex.unlock();
-    ros::spinOnce(); 
-    loop_rate.sleep(); 
+    loop_rate.sleep();
   }
   std::cout << "PubMap is over" << std::endl;
   _stopped = true;

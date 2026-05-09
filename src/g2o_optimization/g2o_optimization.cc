@@ -2,6 +2,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <opencv2/opencv.hpp>
 #include <opencv2/core/eigen.hpp>
@@ -97,9 +98,9 @@ void LocalmapOptimization(MapOfPoses& poses, MapOfPoints3d& points, MapOfLine3d&
 
   // 1. optimizer
   g2o::SparseOptimizer optimizer;
-  auto linear_solver = g2o::make_unique<g2o::LinearSolverEigen<g2o::BlockSolverX::PoseMatrixType>>();
+  auto linear_solver = std::make_unique<g2o::LinearSolverEigen<g2o::BlockSolverX::PoseMatrixType>>();
   g2o::OptimizationAlgorithmLevenberg *solver = new g2o::OptimizationAlgorithmLevenberg(
-    g2o::make_unique<g2o::BlockSolverX>(std::move(linear_solver)));
+    std::make_unique<g2o::BlockSolverX>(std::move(linear_solver)));
 
   optimizer.setVerbose(false);
   optimizer.setAlgorithm(solver);
@@ -464,9 +465,9 @@ int FrameOptimization(MapOfPoses& poses, MapOfPoints3d& points, MapOfLine3d& lin
 
   // 1. optimizer
   g2o::SparseOptimizer optimizer;
-  auto linear_solver = g2o::make_unique<g2o::LinearSolverDense<g2o::BlockSolverX::PoseMatrixType>>();
+  auto linear_solver = std::make_unique<g2o::LinearSolverDense<g2o::BlockSolverX::PoseMatrixType>>();
   g2o::OptimizationAlgorithmLevenberg *solver = new g2o::OptimizationAlgorithmLevenberg(
-    g2o::make_unique<g2o::BlockSolverX>(std::move(linear_solver)));
+    std::make_unique<g2o::BlockSolverX>(std::move(linear_solver)));
 
   optimizer.setVerbose(false);
   optimizer.setAlgorithm(solver);
@@ -901,9 +902,9 @@ bool IMUInitialization(MapOfPoses& poses, MapOfVelocity& velocities, Bias& bias,
     VectorOfIMUConstraints& imu_constraints, Eigen::Matrix3d& Rwg){
   // 1. optimizer
   g2o::SparseOptimizer optimizer;
-  auto linear_solver = g2o::make_unique<g2o::LinearSolverEigen<g2o::BlockSolverX::PoseMatrixType>>();
+  auto linear_solver = std::make_unique<g2o::LinearSolverEigen<g2o::BlockSolverX::PoseMatrixType>>();
   g2o::OptimizationAlgorithmLevenberg *solver = new g2o::OptimizationAlgorithmLevenberg(
-    g2o::make_unique<g2o::BlockSolverX>(std::move(linear_solver)));
+    std::make_unique<g2o::BlockSolverX>(std::move(linear_solver)));
 
   optimizer.setVerbose(false);
   optimizer.setAlgorithm(solver);
@@ -1436,9 +1437,9 @@ void PoseGraphOptimization(MapOfPoses& poses, std::vector<CameraPtr>& camera_lis
 
   // 1. optimizer
   g2o::SparseOptimizer optimizer;
-  auto linear_solver = g2o::make_unique<g2o::LinearSolverEigen<g2o::BlockSolverX::PoseMatrixType>>();
+  auto linear_solver = std::make_unique<g2o::LinearSolverEigen<g2o::BlockSolverX::PoseMatrixType>>();
   g2o::OptimizationAlgorithmLevenberg *solver = new g2o::OptimizationAlgorithmLevenberg(
-    g2o::make_unique<g2o::BlockSolverX>(std::move(linear_solver)));
+    std::make_unique<g2o::BlockSolverX>(std::move(linear_solver)));
 
   optimizer.setVerbose(false);
   optimizer.setAlgorithm(solver);
@@ -1494,9 +1495,9 @@ void GlobalBA(MapPtr _map, const OptimizationConfig& cfg, bool point_outlier_rej
 
   // 1. optimizer
   g2o::SparseOptimizer optimizer;
-  auto linear_solver = g2o::make_unique<g2o::LinearSolverEigen<g2o::BlockSolverX::PoseMatrixType>>();
+  auto linear_solver = std::make_unique<g2o::LinearSolverEigen<g2o::BlockSolverX::PoseMatrixType>>();
   g2o::OptimizationAlgorithmLevenberg *solver = new g2o::OptimizationAlgorithmLevenberg(
-    g2o::make_unique<g2o::BlockSolverX>(std::move(linear_solver)));
+    std::make_unique<g2o::BlockSolverX>(std::move(linear_solver)));
 
   optimizer.setVerbose(false);
   optimizer.setAlgorithm(solver);

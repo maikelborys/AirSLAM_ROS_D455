@@ -64,7 +64,8 @@ void MapUser::PubMap(){
   }
 
   while(!_stop){
-    double current_time = ros::Time::now().toSec();
+    double current_time = std::chrono::duration<double>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
     keyframe_message->time = current_time;
     map_message->time = current_time;
     mapline_message->time = current_time;
@@ -115,10 +116,11 @@ bool MapUser::Relocalization(cv::Mat& image, Eigen::Matrix4d& pose){
   frame->AddLeftFeatures(features, feature_lines);
   frame->AddJunctions(junctions);
 
-  ros::Time now = ros::Time::now();
+  const double now_sec = std::chrono::duration<double>(
+      std::chrono::system_clock::now().time_since_epoch()).count();
   if(_configs.ros_publisher_config.feature){
     FeatureMessgaePtr feature_message = std::shared_ptr<FeatureMessgae>(new FeatureMessgae);
-    feature_message->time = now.toSec();
+    feature_message->time = now_sec;
     feature_message->image = image_rect;
     feature_message->keypoints = frame->GetAllKeypoints();
     feature_message->fm_type = FeatureMessgaeType::RelocFeature;
@@ -462,10 +464,10 @@ bool MapUser::Relocalization(cv::Mat& image, Eigen::Matrix4d& pose){
   // visualization
   if(_configs.ros_publisher_config.reloc){
     FramePoseMessagePtr frame_pose_message = std::shared_ptr<FramePoseMessage>(new FramePoseMessage);
-    frame_pose_message->time = now.toSec();
+    frame_pose_message->time = now_sec;
     frame_pose_message->pose = pose;
 
-    _reloc_message->times.push_back(now.toSec());
+    _reloc_message->times.push_back(now_sec);
     _reloc_message->poses.push_back(pose);
     _reloc_message->mappoints.clear();
     _reloc_message->mappoints.reserve(num_inliers);

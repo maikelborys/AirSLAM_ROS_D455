@@ -7,6 +7,8 @@ data/*
 # *.jpg
 # *.png
 *.engine
+# Patched ONNX models — regenerable via scripts/patch_onnx_for_trt10.py
+output/*_trt10.onnx
 .vscode/*
 model/*
 weights/*

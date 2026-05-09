@@ -42,10 +42,9 @@ find_package(Eigen3 REQUIRED)
 find_package(CUDAToolkit REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(Boost REQUIRED COMPONENTS serialization)
-# G2O / Glog / Gflags — wired in once Phase 1/2 sources are added
-# find_package(G2O REQUIRED)
-# find_package(Gflags REQUIRED)
-# find_package(Glog REQUIRED)
+find_package(G2O REQUIRED)
+find_package(Gflags REQUIRED)
+find_package(Glog REQUIRED)
 
 # ----------------------------------------------------------------------------
 # 3rdparty (kept as-is from upstream — both have no ROS coupling)
@@ -58,15 +57,35 @@ add_subdirectory(${PROJECT_SOURCE_DIR}/3rdparty/DBoW2)
 # isolation. Sources land here phase-by-phase as Phase 1 progresses.
 # ----------------------------------------------------------------------------
 add_library(air_slam_core_lib SHARED
+  # Networks (TRT 10)
   src/super_point.cpp
   src/super_glue.cpp
   src/light_glue.cpp
   src/plnet.cpp
   src/feature_detector.cc
   src/point_matcher.cc
+  # Geometry / IO / utilities
   src/camera.cc
+  src/dataset.cc
+  src/imu.cc
+  src/frame.cc
+  src/mappoint.cc
+  src/mapline.cc
+  src/line_processor.cc
   src/utils.cc
   src/timer.cc
+  src/debug.cc
+  # BoW
+  src/bow/FSuperpoint.cc
+  src/bow/database.cc
+  # g2o vertices/edges (ROS-free)
+  src/g2o_optimization/vertex_line3d.cc
+  src/g2o_optimization/vertex_vi_pose.cc
+  src/g2o_optimization/vertex_imu.cc
+  src/g2o_optimization/edge_project_point.cc
+  src/g2o_optimization/edge_project_line.cc
+  src/g2o_optimization/edge_imu.cc
+  src/g2o_optimization/edge_relative_pose.cc
 )
 
 target_include_directories(air_slam_core_lib
@@ -76,6 +95,9 @@ target_include_directories(air_slam_core_lib
     $<INSTALL_INTERFACE:include/${PROJECT_NAME}>
     ${EIGEN3_INCLUDE_DIRS}
     ${OpenCV_INCLUDE_DIRS}
+    ${G2O_INCLUDE_DIR}
+    ${GFLAGS_INCLUDE_DIRS}
+    ${GLOG_INCLUDE_DIRS}
 )
 
 target_link_libraries(air_slam_core_lib
@@ -88,6 +110,9 @@ target_link_libraries(air_slam_core_lib
     nvinfer
     nvonnxparser
     CUDA::cudart
+    ${G2O_LIBRARIES}
+    ${GFLAGS_LIBRARIES}
+    ${GLOG_LIBRARIES}
 )
 
 # ----------------------------------------------------------------------------
@@ -95,6 +120,11 @@ target_link_libraries(air_slam_core_lib
 # ----------------------------------------------------------------------------
 add_library(air_slam_lib SHARED
   src/ros_publisher.cc
+  src/map.cc
+  src/map_builder.cc
+  src/map_refiner.cc
+  src/map_user.cc
+  src/g2o_optimization/g2o_optimization.cc
 )
 
 target_include_directories(air_slam_lib
@@ -122,6 +152,27 @@ ament_target_dependencies(air_slam_lib
     tf2
     tf2_ros
     tf2_geometry_msgs
+)
+
+# ----------------------------------------------------------------------------
+# Demo executables
+# ----------------------------------------------------------------------------
+foreach(demo visual_odometry map_refinement relocalization test_feature)
+  add_executable(${demo} demo/${demo}.cpp)
+  ament_target_dependencies(${demo} rclcpp)
+  target_link_libraries(${demo} air_slam_lib)
+  install(TARGETS ${demo} DESTINATION lib/${PROJECT_NAME})
+endforeach()
+
+install(TARGETS
+  air_slam_core_lib
+  air_slam_lib
+  tensorrtbuffer
+  DBoW2
+  EXPORT air_slam_export
+  LIBRARY DESTINATION lib
+  ARCHIVE DESTINATION lib
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
 # ----------------------------------------------------------------------------
