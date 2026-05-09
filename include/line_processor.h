@@ -14,6 +14,7 @@
 #include <g2o/types/slam3d_addons/types_slam3d_addons.h>
 
 #include "utils.h"
+#include "utils_g2o.h"
 #include "read_configs.h"
 #include "camera.h"
 

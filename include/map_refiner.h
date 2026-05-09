@@ -40,7 +40,7 @@ struct LoopFramePair{
 class MapRefiner{
 public:
   MapRefiner();
-  MapRefiner(MapRefinementConfigs& configs, ros::NodeHandle nh);
+  MapRefiner(MapRefinementConfigs& configs, rclcpp::Node::SharedPtr nh);
 
   void LoadMap(const std::string& map_root);
 

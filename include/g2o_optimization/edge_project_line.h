@@ -11,6 +11,7 @@
 #include <g2o/types/slam3d_addons/line3d.h>
 
 #include "utils.h"
+#include "utils_g2o.h"
 #include "g2o_optimization/vertex_vi_pose.h"
 #include "g2o_optimization/vertex_line3d.h"
 

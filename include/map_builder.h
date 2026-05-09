@@ -63,7 +63,7 @@ typedef std::shared_ptr<TrackingData> TrackingDataPtr;
 
 class MapBuilder{
 public:
-  MapBuilder(VisualOdometryConfigs& configs, ros::NodeHandle nh);
+  MapBuilder(VisualOdometryConfigs& configs, rclcpp::Node::SharedPtr nh);
   bool UseIMU();
   void AddInput(InputDataPtr data);
   void ExtractFeatureThread();

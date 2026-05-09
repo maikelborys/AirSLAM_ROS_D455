@@ -8,6 +8,7 @@
 #include <g2o/types/slam3d_addons/line3d.h>
 
 #include "utils.h"
+#include "utils_g2o.h"
 #include "g2o_optimization/vertex_line3d.h"
 
 VertexLine3D::VertexLine3D() : g2o::BaseVertex<4, g2o::Line3D>(), color(1., 0.5, 0.) {}

@@ -1,115 +1,142 @@
-cmake_minimum_required(VERSION 3.5)
-project(air_slam)
+cmake_minimum_required(VERSION 3.14)
+project(air_slam LANGUAGES CXX CUDA)
 
+# ============================================================================
+# AirSLAM ROS 2 Jazzy port — work in progress
+# Phase 0 stub: compiles only the 3rdparty subdirs so colcon graph resolves.
+# AirSLAM sources will be added back library-by-library as Phases 1/2 land.
+# Original ROS 1 CMakeLists is preserved at CMakeLists.txt.ros1.bak.
+# ============================================================================
+
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_BUILD_TYPE "release")
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
-add_definitions(-w)
 
+# Suppress warning storm from upstream until the port is green.
+add_compile_options(-w)
+
+# ----------------------------------------------------------------------------
+# ROS 2 / ament dependencies
+# ----------------------------------------------------------------------------
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(cv_bridge REQUIRED)
+find_package(image_transport REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
+
+# ----------------------------------------------------------------------------
+# System dependencies
+# ----------------------------------------------------------------------------
+find_package(OpenCV REQUIRED)
+find_package(Eigen3 REQUIRED)
+find_package(CUDAToolkit REQUIRED)
+find_package(yaml-cpp REQUIRED)
+find_package(Boost REQUIRED COMPONENTS serialization)
+# G2O / Glog / Gflags — wired in once Phase 1/2 sources are added
+# find_package(G2O REQUIRED)
+# find_package(Gflags REQUIRED)
+# find_package(Glog REQUIRED)
+
+# ----------------------------------------------------------------------------
+# 3rdparty (kept as-is from upstream — both have no ROS coupling)
+# ----------------------------------------------------------------------------
 add_subdirectory(${PROJECT_SOURCE_DIR}/3rdparty/tensorrtbuffer)
 add_subdirectory(${PROJECT_SOURCE_DIR}/3rdparty/DBoW2)
 
-## Find catkin macros and libraries
-## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
-## is used, also find other catkin packages
-find_package(catkin REQUIRED COMPONENTS
-  cv_bridge
-  geometry_msgs
-  image_transport
-  nav_msgs
-  roscpp
-  rospy
-  std_msgs
-  sensor_msgs
-  tf
-)
-
-find_package(OpenCV 4.2 REQUIRED)
-find_package(Eigen3 REQUIRED)
-find_package(CUDA REQUIRED)
-find_package(yaml-cpp REQUIRED)
-find_package(Boost REQUIRED)
-find_package(G2O REQUIRED)
-find_package(Gflags REQUIRED)
-find_package(Glog REQUIRED)
-
-catkin_package(
- INCLUDE_DIRS include
- LIBRARIES ${PROJECT_NAME}_lib
- CATKIN_DEPENDS geometry_msgs image_transport nav_msgs roscpp rospy std_msgs
-)
-
-include_directories(
-  ${PROJECT_SOURCE_DIR}
-  ${PROJECT_SOURCE_DIR}/include
-  ${OpenCV_INCLUDE_DIRS}
-  ${EIGEN3_INCLUDE_DIRS}
-  ${CUDA_INCLUDE_DIRS}
-  ${YAML_CPP_INCLUDE_DIR}
-  ${Boost_INCLUDE_DIRS}
-  ${catkin_INCLUDE_DIRS}
-  ${G2O_INCLUDE_DIR}
-  ${GFLAGS_INCLUDE_DIRS} 
-  ${GLOG_INCLUDE_DIRS}
-)
-
-add_library(${PROJECT_NAME}_lib SHARED
-  src/g2o_optimization/vertex_line3d.cc
-  src/g2o_optimization/vertex_vi_pose.cc
-  src/g2o_optimization/vertex_imu.cc
-  src/g2o_optimization/edge_project_point.cc
-  src/g2o_optimization/edge_project_line.cc
-  src/g2o_optimization/edge_imu.cc
-  src/g2o_optimization/edge_relative_pose.cc
-  src/g2o_optimization/g2o_optimization.cc
-  src/bow/FSuperpoint.cc
-  src/bow/database.cc
+# ----------------------------------------------------------------------------
+# air_slam_core_lib — non-ROS sources, validates the TRT 10 migration in
+# isolation. Sources land here phase-by-phase as Phase 1 progresses.
+# ----------------------------------------------------------------------------
+add_library(air_slam_core_lib SHARED
   src/super_point.cpp
-  src/feature_detector.cc
   src/super_glue.cpp
   src/light_glue.cpp
   src/plnet.cpp
-  src/utils.cc
-  src/camera.cc
-  src/imu.cc
-  src/dataset.cc
-  src/frame.cc
+  src/feature_detector.cc
   src/point_matcher.cc
-  src/mappoint.cc
-  src/mapline.cc
-  src/line_processor.cc
-  src/ros_publisher.cc
-  src/map.cc
-  src/map_builder.cc
-  src/map_refiner.cc
-  src/map_user.cc
+  src/camera.cc
+  src/utils.cc
   src/timer.cc
-  src/debug.cc
 )
 
-target_link_libraries(${PROJECT_NAME}_lib
-  nvinfer
-  nvonnxparser
-  ${OpenCV_LIBRARIES}
-  ${CUDA_LIBRARIES}
-  ${Boost_LIBRARIES}
-  ${G2O_LIBRARIES}
-  ${GFLAGS_LIBRARIES} 
-  ${GLOG_LIBRARIES}
-  yaml-cpp
-  tensorrtbuffer
-  DBoW2
-  -lboost_serialization
+target_include_directories(air_slam_core_lib
+  PUBLIC
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}>
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include/${PROJECT_NAME}>
+    ${EIGEN3_INCLUDE_DIRS}
+    ${OpenCV_INCLUDE_DIRS}
 )
 
-add_executable(visual_odometry demo/visual_odometry.cpp)
-target_link_libraries(visual_odometry ${PROJECT_NAME}_lib ${catkin_LIBRARIES})
+target_link_libraries(air_slam_core_lib
+  PUBLIC
+    tensorrtbuffer
+    DBoW2
+    ${OpenCV_LIBRARIES}
+    yaml-cpp
+    Boost::serialization
+    nvinfer
+    nvonnxparser
+    CUDA::cudart
+)
 
-add_executable(map_refinement demo/map_refinement.cpp)
-target_link_libraries(map_refinement ${PROJECT_NAME}_lib ${catkin_LIBRARIES})
+# ----------------------------------------------------------------------------
+# air_slam_lib — ROS-aware sources (RosPublisher, eventually MapBuilder etc.)
+# ----------------------------------------------------------------------------
+add_library(air_slam_lib SHARED
+  src/ros_publisher.cc
+)
 
-add_executable(relocalization demo/relocalization.cpp)
-target_link_libraries(relocalization ${PROJECT_NAME}_lib ${catkin_LIBRARIES})
+target_include_directories(air_slam_lib
+  PUBLIC
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}>
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include/${PROJECT_NAME}>
+)
 
-add_executable(test_feature demo/test_feature.cpp)
-target_link_libraries(test_feature ${PROJECT_NAME}_lib ${catkin_LIBRARIES})
+target_link_libraries(air_slam_lib
+  PUBLIC
+    air_slam_core_lib
+)
+
+ament_target_dependencies(air_slam_lib
+  PUBLIC
+    rclcpp
+    cv_bridge
+    image_transport
+    geometry_msgs
+    nav_msgs
+    sensor_msgs
+    std_msgs
+    visualization_msgs
+    tf2
+    tf2_ros
+    tf2_geometry_msgs
+)
+
+# ----------------------------------------------------------------------------
+# Install only what currently exists
+# ----------------------------------------------------------------------------
+install(
+  DIRECTORY include/
+  DESTINATION include/${PROJECT_NAME}
+)
+
+install(
+  DIRECTORY configs voc rviz launch output
+  DESTINATION share/${PROJECT_NAME}
+  PATTERN "*.launch" EXCLUDE
+)
+
+ament_export_include_directories(include)
+ament_package()

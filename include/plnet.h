@@ -3,6 +3,7 @@
 
 #include <NvInfer.h>
 #include <NvOnnxParser.h>
+#include <cuda_runtime_api.h>
 
 #include <Eigen/Core>
 #include <memory>
@@ -17,6 +18,7 @@ using tensorrt_buffer::TensorRTUniquePtr;
 class PLNet {
  public:
   PLNet(PLNetConfig& plnet_config);
+  ~PLNet();
 
   bool build();
 
@@ -34,6 +36,7 @@ class PLNet {
   std::shared_ptr<nvinfer1::IExecutionContext> context0_;
   std::shared_ptr<nvinfer1::ICudaEngine> engine1_;
   std::shared_ptr<nvinfer1::IExecutionContext> context1_;
+  cudaStream_t stream_;
 
   int input_width;
   int input_height;
@@ -46,17 +49,7 @@ class PLNet {
   int feature_width;
   int feature_height;
 
-
-  int image_input_index_;
-  int juncs_pred_index_;
-  int lines_pred_index_;
-  int idx_lines_for_junctions_index_;
-  int inverse_index_;
-  int is_keep_index_index_;
-  int loi_features_index_;
-  int loi_features_thin_index_;
-  int loi_features_aux_index_;
-
+  // Note: TRT 8 cached binding indices are gone — TRT 10 keys by tensor name.
 
   std::vector<int> is_keep_index_;
   std::vector<int> inverse_;

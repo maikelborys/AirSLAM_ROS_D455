@@ -13,6 +13,7 @@
 
 #include "map.h"
 #include "utils.h"
+#include "utils_g2o.h"
 #include "line_processor.h"
 #include "frame.h"
 #include "g2o_optimization/g2o_optimization.h"

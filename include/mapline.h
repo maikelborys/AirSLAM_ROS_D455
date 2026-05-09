@@ -19,6 +19,7 @@
 #include <boost/serialization/map.hpp>
 
 #include "utils.h"
+#include "utils_g2o.h"
 
 
 class Mapline{

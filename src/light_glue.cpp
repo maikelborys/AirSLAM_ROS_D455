@@ -13,8 +13,17 @@
 using namespace tensorrt_log;
 using namespace tensorrt_buffer;
 
-SuperPointLightGlue::SuperPointLightGlue(const PointMatcherConfig &lightglue_config) : lightglue_config_(lightglue_config), engine_(nullptr) {
+SuperPointLightGlue::SuperPointLightGlue(const PointMatcherConfig &lightglue_config)
+    : lightglue_config_(lightglue_config), engine_(nullptr), stream_(nullptr) {
   setReportableSeverity(Logger::Severity::kINTERNAL_ERROR);
+  cudaStreamCreate(&stream_);
+}
+
+SuperPointLightGlue::~SuperPointLightGlue() {
+  if (stream_) {
+    cudaStreamDestroy(stream_);
+    stream_ = nullptr;
+  }
 }
 
 bool SuperPointLightGlue::build() {
@@ -27,8 +36,8 @@ bool SuperPointLightGlue::build() {
     return false;
   }
 
-  const auto explicit_batch = 1U << static_cast<uint32_t>(nvinfer1::NetworkDefinitionCreationFlag::kEXPLICIT_BATCH);
-  auto network = TensorRTUniquePtr<nvinfer1::INetworkDefinition>(builder->createNetworkV2(explicit_batch));
+  // TRT 10: explicit batch is the only supported mode.
+  auto network = TensorRTUniquePtr<nvinfer1::INetworkDefinition>(builder->createNetworkV2(0));
   if (!network) {
     return false;
   }
@@ -120,47 +129,51 @@ bool SuperPointLightGlue::construct_network(TensorRTUniquePtr<nvinfer1::IBuilder
 bool SuperPointLightGlue::infer(const Eigen::Matrix<float, 258, Eigen::Dynamic> &features0, const Eigen::Matrix<float, 258, Eigen::Dynamic> &features1,
                                 Eigen::Matrix<int, Eigen::Dynamic, 2> &matches_index, Eigen::Matrix<float, Eigen::Dynamic, 1> &matches_score) {
   if (!context_) {
-    context_ = TensorRTUniquePtr<nvinfer1::IExecutionContext>(engine_->createExecutionContext());
+    context_ = std::shared_ptr<nvinfer1::IExecutionContext>(engine_->createExecutionContext());
     if (!context_) {
       return false;
     }
   }
 
-  assert(engine_->getNbBindings() == 5);
+  // LightGlue engine: 4 inputs + 1 output = 5 I/O tensors.
+  assert(engine_->getNbIOTensors() == 5);
 
-  const int keypoints_0_index = engine_->getBindingIndex(lightglue_config_.input_tensor_names[0].c_str());
-  const int keypoints_1_index = engine_->getBindingIndex(lightglue_config_.input_tensor_names[1].c_str());
-  const int descriptors_0_index = engine_->getBindingIndex(lightglue_config_.input_tensor_names[2].c_str());
-  const int descriptors_1_index = engine_->getBindingIndex(lightglue_config_.input_tensor_names[3].c_str());
-  //    const int scores_index = engine_->getBindingIndex(
-  //            lightglue_config_.output_tensor_names[0].c_str());
+  const std::string& kp0 = lightglue_config_.input_tensor_names[0];
+  const std::string& kp1 = lightglue_config_.input_tensor_names[1];
+  const std::string& de0 = lightglue_config_.input_tensor_names[2];
+  const std::string& de1 = lightglue_config_.input_tensor_names[3];
 
-  context_->setBindingDimensions(keypoints_0_index, nvinfer1::Dims3(1, features0.cols(), 2));
-  context_->setBindingDimensions(keypoints_1_index, nvinfer1::Dims3(1, features1.cols(), 2));
-  context_->setBindingDimensions(descriptors_0_index, nvinfer1::Dims3(1, features0.cols(), 256));
-  context_->setBindingDimensions(descriptors_1_index, nvinfer1::Dims3(1, features1.cols(), 256));
-  //    context_->setBindingDimensions(scores_index, nvinfer1::Dims3(1, features0.cols(), features1.cols()));
+  if (!context_->setInputShape(kp0.c_str(), nvinfer1::Dims3(1, features0.cols(), 2)) ||
+      !context_->setInputShape(kp1.c_str(), nvinfer1::Dims3(1, features1.cols(), 2)) ||
+      !context_->setInputShape(de0.c_str(), nvinfer1::Dims3(1, features0.cols(), 256)) ||
+      !context_->setInputShape(de1.c_str(), nvinfer1::Dims3(1, features1.cols(), 256))) {
+    return false;
+  }
 
-  keypoints_0_dims_ = context_->getBindingDimensions(keypoints_0_index);
-  keypoints_1_dims_ = context_->getBindingDimensions(keypoints_1_index);
-  descriptors_0_dims_ = context_->getBindingDimensions(descriptors_0_index);
-  descriptors_1_dims_ = context_->getBindingDimensions(descriptors_1_index);
-  //    scores_dims_ = context_->getBindingDimensions(scores_index);
+  keypoints_0_dims_   = context_->getTensorShape(kp0.c_str());
+  keypoints_1_dims_   = context_->getTensorShape(kp1.c_str());
+  descriptors_0_dims_ = context_->getTensorShape(de0.c_str());
+  descriptors_1_dims_ = context_->getTensorShape(de1.c_str());
 
-  BufferManager buffers(engine_, 0, context_.get());
+  BufferManager buffers(engine_, context_.get());
 
   ASSERT(lightglue_config_.input_tensor_names.size() == 4);
   if (!process_input(buffers, features0, features1)) {
     return false;
   }
 
-  buffers.copyInputToDevice();
-
-  bool status = context_->executeV2(buffers.getDeviceBindings().data());
-  if (!status) {
+  if (!buffers.setTensorAddresses(context_.get())) {
     return false;
   }
-  buffers.copyOutputToHost();
+
+  buffers.copyInputToDeviceAsync(stream_);
+  if (!context_->enqueueV3(stream_)) {
+    return false;
+  }
+  buffers.copyOutputToHostAsync(stream_);
+  if (cudaStreamSynchronize(stream_) != cudaSuccess) {
+    return false;
+  }
 
   if (!process_output(buffers, matches_index, matches_score)) {
     return false;

@@ -1,6 +1,10 @@
 //
 // Created by haoyuefan on 2021/9/22.
 //
+// AirSLAM Jazzy port: TensorRT 8 → 10 migration. See 3rdparty/tensorrtbuffer/
+// include/buffers.h for the new tensor-name BufferManager API. Inference now
+// flows through enqueueV3 + a per-instance CUDA stream instead of executeV2.
+//
 #include "super_point.h"
 #include <utility>
 #include <unordered_map>
@@ -9,10 +13,18 @@
 using namespace tensorrt_log;
 using namespace tensorrt_buffer;
 
-SuperPoint::SuperPoint(const SuperPointConfig &super_point_config): resized_width(512), 
-        resized_height(512), super_point_config_(super_point_config), engine_(nullptr) {
+SuperPoint::SuperPoint(const SuperPointConfig &super_point_config): resized_width(512),
+        resized_height(512), super_point_config_(super_point_config), engine_(nullptr),
+        stream_(nullptr) {
     setReportableSeverity(Logger::Severity::kINTERNAL_ERROR);
-    // setReportableSeverity(Logger::Severity::kINTERNAL_ERROR);
+    cudaStreamCreate(&stream_);
+}
+
+SuperPoint::~SuperPoint() {
+    if (stream_) {
+        cudaStreamDestroy(stream_);
+        stream_ = nullptr;
+    }
 }
 
 bool SuperPoint::build() {
@@ -24,8 +36,8 @@ bool SuperPoint::build() {
     if (!builder) {
         return false;
     }
-    const auto explicit_batch = 1U << static_cast<uint32_t>(nvinfer1::NetworkDefinitionCreationFlag::kEXPLICIT_BATCH);
-    auto network = TensorRTUniquePtr<nvinfer1::INetworkDefinition>(builder->createNetworkV2(explicit_batch));
+    // TensorRT 10: explicit batch is the only supported mode; flag is now 0.
+    auto network = TensorRTUniquePtr<nvinfer1::INetworkDefinition>(builder->createNetworkV2(0));
     if (!network) {
         return false;
     }
@@ -102,7 +114,7 @@ bool SuperPoint::construct_network(TensorRTUniquePtr<nvinfer1::IBuilder> &builde
 
 bool SuperPoint::infer(const cv::Mat &image_, Eigen::Matrix<float, 259, Eigen::Dynamic> &features) {
     if (!context_) {
-        context_ = TensorRTUniquePtr<nvinfer1::IExecutionContext>(engine_->createExecutionContext());
+        context_ = std::shared_ptr<nvinfer1::IExecutionContext>(engine_->createExecutionContext());
         if (!context_) {
             return false;
         }
@@ -115,27 +127,37 @@ bool SuperPoint::infer(const cv::Mat &image_, Eigen::Matrix<float, 259, Eigen::D
     cv::Mat image;
     cv::resize(image_, image, cv::Size(resized_width, resized_height));
 
-    assert(engine_->getNbBindings() == 3);
+    // SuperPoint engine has 1 input + 2 outputs.
+    assert(engine_->getNbIOTensors() == 3);
 
-    const int input_index = engine_->getBindingIndex(super_point_config_.input_tensor_names[0].c_str());
+    const std::string& input_name = super_point_config_.input_tensor_names[0];
 
-    context_->setBindingDimensions(input_index, nvinfer1::Dims4(1, 1, image.rows, image.cols));
+    // TRT 10: dynamic input shape is set by tensor name on the context.
+    if (!context_->setInputShape(input_name.c_str(),
+            nvinfer1::Dims4(1, 1, image.rows, image.cols))) {
+        return false;
+    }
 
-    BufferManager buffers(engine_, 0, context_.get());
-    
+    BufferManager buffers(engine_, context_.get());
+
     ASSERT(super_point_config_.input_tensor_names.size() == 1);
     if (!process_input(buffers, image)) {
         return false;
     }
 
-    buffers.copyInputToDevice();
-
-    bool status = context_->executeV2(buffers.getDeviceBindings().data());
-    if (!status) {
+    if (!buffers.setTensorAddresses(context_.get())) {
         return false;
     }
 
-    buffers.copyOutputToHost();
+    buffers.copyInputToDeviceAsync(stream_);
+    if (!context_->enqueueV3(stream_)) {
+        return false;
+    }
+    buffers.copyOutputToHostAsync(stream_);
+    if (cudaStreamSynchronize(stream_) != cudaSuccess) {
+        return false;
+    }
+
     if (!process_output(buffers, features)) {
         return false;
     }

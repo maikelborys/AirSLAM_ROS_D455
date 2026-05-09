@@ -21,7 +21,7 @@
 #include "timer.h"
 #include "debug.h"
 
-MapBuilder::MapBuilder(VisualOdometryConfigs& configs, ros::NodeHandle nh): _shutdown(false), _feature_thread_stop(false), 
+MapBuilder::MapBuilder(VisualOdometryConfigs& configs, rclcpp::Node::SharedPtr nh): _shutdown(false), _feature_thread_stop(false), 
     _tracking_trhead_stop(false), _init(false), _insert_next_keyframe(false), _track_id(0), _line_track_id(0), _configs(configs){
   _camera = std::shared_ptr<Camera>(new Camera(configs.camera_config_path));
   _preinteration_keyframe.SetNoiseAndWalk(_camera->GyrNoise(), _camera->AccNoise(), _camera->GyrWalk(), _camera->AccWalk());

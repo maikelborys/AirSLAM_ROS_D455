@@ -110,7 +110,8 @@ namespace tensorrt_buffer
     {
         if (vecDim >= 0)
         {
-            dims.d[vecDim] = roundUp(dims.d[vecDim], comps);
+            // TRT 10: dims.d is int64_t — explicit cast so roundUp<T> deduces.
+            dims.d[vecDim] = roundUp(dims.d[vecDim], static_cast<int64_t>(comps));
         }
         return tensorrt_buffer::volume(dims) * std::max(batch, 1);
     }

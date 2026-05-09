@@ -1,5 +1,6 @@
 #include "mapline.h"
 #include "utils.h"
+#include "utils_g2o.h"
 #include "line_processor.h"
 
 Mapline::Mapline():local_map_optimization_frame_id(-1), _type(Type::UnTriangulated), 

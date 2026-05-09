@@ -1,22 +1,33 @@
-cmake_minimum_required(VERSION 3.6)
-project(tensorrtbuffer)
+cmake_minimum_required(VERSION 3.14)
+project(tensorrtbuffer LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-if(POLICY CMP0146)
-    cmake_policy(SET CMP0146 OLD)
-endif()
+# AirSLAM only consumes BufferManager (buffers.h, header-only) and logger.
+# sample_options.cpp / sample_utils.cpp pull in NvCaffeParser.h / NvUffParser.h
+# which were removed in TensorRT 10. We don't need them — keep just logger.cpp.
 
-find_package(CUDA REQUIRED)
-include_directories("${CUDA_INCLUDE_DIRS}")
+find_package(CUDAToolkit REQUIRED)
 
-include_directories(
-    ${PROJECT_SOURCE_DIR}/include
+add_library(tensorrtbuffer SHARED src/logger.cpp)
+
+target_include_directories(tensorrtbuffer
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
 
-set(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)
+target_link_libraries(tensorrtbuffer
+    PUBLIC
+        CUDA::cudart
+)
 
-add_library(tensorrtbuffer SHARED src/logger.cpp src/sample_options.cpp src/sample_utils.cpp)
-
-
-
+# Compile-only smoke test for the TRT-10-migrated buffers.h header.
+# Builds during `colcon build`; if buffers.h ever stops parsing this fails.
+add_executable(buffers_compile_test test/buffers_compile_test.cpp)
+target_link_libraries(buffers_compile_test
+    PRIVATE
+        tensorrtbuffer
+        nvinfer
+)

@@ -30,7 +30,7 @@ struct RelocalizationGroupCandidate{
 class MapUser{
 public:
   MapUser();
-  MapUser(RelocalizationConfigs& configs, ros::NodeHandle nh);
+  MapUser(RelocalizationConfigs& configs, rclcpp::Node::SharedPtr nh);
 
   void LoadMap(const std::string& map_root);
   void LoadVocabulary(const std::string voc_path);

@@ -12,9 +12,17 @@
 using namespace tensorrt_log;
 using namespace tensorrt_buffer;
 
-SuperGlue::SuperGlue(const PointMatcherConfig &superglue_config) : superglue_config_(superglue_config), engine_(nullptr) {
+SuperGlue::SuperGlue(const PointMatcherConfig &superglue_config) : superglue_config_(superglue_config),
+        engine_(nullptr), stream_(nullptr) {
     setReportableSeverity(Logger::Severity::kINTERNAL_ERROR);
-    // setReportableSeverity(Logger::Severity::kINFO);
+    cudaStreamCreate(&stream_);
+}
+
+SuperGlue::~SuperGlue() {
+    if (stream_) {
+        cudaStreamDestroy(stream_);
+        stream_ = nullptr;
+    }
 }
 
 bool SuperGlue::build() {
@@ -28,8 +36,8 @@ bool SuperGlue::build() {
         return false;
     }
 
-    const auto explicit_batch = 1U << static_cast<uint32_t>(nvinfer1::NetworkDefinitionCreationFlag::kEXPLICIT_BATCH);
-    auto network = TensorRTUniquePtr<nvinfer1::INetworkDefinition>(builder->createNetworkV2(explicit_batch));
+    // TRT 10: explicit batch is the only mode; pass 0 to createNetworkV2.
+    auto network = TensorRTUniquePtr<nvinfer1::INetworkDefinition>(builder->createNetworkV2(0));
     if (!network) {
         return false;
     }
@@ -140,55 +148,61 @@ bool SuperGlue::infer(const Eigen::Matrix<float, 259, Eigen::Dynamic> &features0
                       Eigen::VectorXi &indices1,
                       Eigen::VectorXd &mscores0,
                       Eigen::VectorXd &mscores1) {
-    // Create RAII buffer manager object
     if (!context_) {
-        context_ = TensorRTUniquePtr<nvinfer1::IExecutionContext>(engine_->createExecutionContext());
+        context_ = std::shared_ptr<nvinfer1::IExecutionContext>(engine_->createExecutionContext());
         if (!context_) {
             return false;
+        }
     }
+
+    // SuperGlue engine: 6 inputs + 1 output = 7 I/O tensors.
+    assert(engine_->getNbIOTensors() == 7);
+
+    const std::string& kp0 = superglue_config_.input_tensor_names[0];
+    const std::string& sc0 = superglue_config_.input_tensor_names[1];
+    const std::string& de0 = superglue_config_.input_tensor_names[2];
+    const std::string& kp1 = superglue_config_.input_tensor_names[3];
+    const std::string& sc1 = superglue_config_.input_tensor_names[4];
+    const std::string& de1 = superglue_config_.input_tensor_names[5];
+    const std::string& outs = superglue_config_.output_tensor_names[0];
+
+    if (!context_->setInputShape(kp0.c_str(), nvinfer1::Dims3(1, features0.cols(), 2)) ||
+        !context_->setInputShape(sc0.c_str(), nvinfer1::Dims2(1, features0.cols())) ||
+        !context_->setInputShape(de0.c_str(), nvinfer1::Dims3(1, 256, features0.cols())) ||
+        !context_->setInputShape(kp1.c_str(), nvinfer1::Dims3(1, features1.cols(), 2)) ||
+        !context_->setInputShape(sc1.c_str(), nvinfer1::Dims2(1, features1.cols())) ||
+        !context_->setInputShape(de1.c_str(), nvinfer1::Dims3(1, 256, features1.cols()))) {
+        return false;
     }
 
-    assert(engine_->getNbBindings() == 7);
+    keypoints_0_dims_   = context_->getTensorShape(kp0.c_str());
+    scores_0_dims_      = context_->getTensorShape(sc0.c_str());
+    descriptors_0_dims_ = context_->getTensorShape(de0.c_str());
+    keypoints_1_dims_   = context_->getTensorShape(kp1.c_str());
+    scores_1_dims_      = context_->getTensorShape(sc1.c_str());
+    descriptors_1_dims_ = context_->getTensorShape(de1.c_str());
+    output_scores_dims_ = context_->getTensorShape(outs.c_str());
 
-    const int keypoints_0_index = engine_->getBindingIndex(superglue_config_.input_tensor_names[0].c_str());
-    const int scores_0_index = engine_->getBindingIndex(superglue_config_.input_tensor_names[1].c_str());
-    const int descriptors_0_index = engine_->getBindingIndex(superglue_config_.input_tensor_names[2].c_str());
-    const int keypoints_1_index = engine_->getBindingIndex(superglue_config_.input_tensor_names[3].c_str());
-    const int scores_1_index = engine_->getBindingIndex(superglue_config_.input_tensor_names[4].c_str());
-    const int descriptors_1_index = engine_->getBindingIndex(superglue_config_.input_tensor_names[5].c_str());
-    const int output_score_index = engine_->getBindingIndex(superglue_config_.output_tensor_names[0].c_str());
-
-    context_->setBindingDimensions(keypoints_0_index, nvinfer1::Dims3(1, features0.cols(), 2));
-    context_->setBindingDimensions(scores_0_index, nvinfer1::Dims2(1, features0.cols()));
-    context_->setBindingDimensions(descriptors_0_index, nvinfer1::Dims3(1, 256, features0.cols()));
-    context_->setBindingDimensions(keypoints_1_index, nvinfer1::Dims3(1, features1.cols(), 2));
-    context_->setBindingDimensions(scores_1_index, nvinfer1::Dims2(1, features1.cols()));
-    context_->setBindingDimensions(descriptors_1_index, nvinfer1::Dims3(1, 256, features1.cols()));
-
-    keypoints_0_dims_ = context_->getBindingDimensions(keypoints_0_index);
-    scores_0_dims_ = context_->getBindingDimensions(scores_0_index);
-    descriptors_0_dims_ = context_->getBindingDimensions(descriptors_0_index);
-    keypoints_1_dims_ = context_->getBindingDimensions(keypoints_1_index);
-    scores_1_dims_ = context_->getBindingDimensions(scores_1_index);
-    descriptors_1_dims_ = context_->getBindingDimensions(descriptors_1_index);
-    output_scores_dims_ = context_->getBindingDimensions(output_score_index);
-
-    BufferManager buffers(engine_, 0, context_.get());
+    BufferManager buffers(engine_, context_.get());
 
     ASSERT(superglue_config_.input_tensor_names.size() == 6);
     if (!process_input(buffers, features0, features1)) {
         return false;
     }
 
-    buffers.copyInputToDevice();
-
-    bool status = context_->executeV2(buffers.getDeviceBindings().data());
-    if (!status) {
+    if (!buffers.setTensorAddresses(context_.get())) {
         return false;
     }
-    buffers.copyOutputToHost();
 
-    // Verify results
+    buffers.copyInputToDeviceAsync(stream_);
+    if (!context_->enqueueV3(stream_)) {
+        return false;
+    }
+    buffers.copyOutputToHostAsync(stream_);
+    if (cudaStreamSynchronize(stream_) != cudaSuccess) {
+        return false;
+    }
+
     if (!process_output(buffers, indices0, indices1, mscores0, mscores1)) {
         return false;
     }

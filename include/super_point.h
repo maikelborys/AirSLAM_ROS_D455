@@ -10,6 +10,7 @@
 #include <Eigen/Core>
 #include <NvInfer.h>
 #include <NvOnnxParser.h>
+#include <cuda_runtime_api.h>
 #include <opencv2/opencv.hpp>
 
 #include "3rdparty/tensorrtbuffer/include/buffers.h"
@@ -20,6 +21,7 @@ using tensorrt_buffer::TensorRTUniquePtr;
 class SuperPoint {
 public:
     explicit SuperPoint(const SuperPointConfig &super_point_config);
+    ~SuperPoint();
 
     bool build();
 
@@ -43,6 +45,7 @@ private:
     nvinfer1::Dims desc_dims_{};
     std::shared_ptr<nvinfer1::ICudaEngine> engine_;
     std::shared_ptr<nvinfer1::IExecutionContext> context_;
+    cudaStream_t stream_;
     std::vector<std::vector<int>> keypoints_;
     std::vector<std::vector<float>> descriptors_;
 

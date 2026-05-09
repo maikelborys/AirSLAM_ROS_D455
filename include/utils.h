@@ -29,12 +29,8 @@
 #include <boost/serialization/vector.hpp>
 #include <boost/serialization/shared_ptr.hpp>
 
-
-#include <g2o/types/slam3d/types_slam3d.h>
-#include <g2o/types/slam3d_addons/types_slam3d_addons.h>
-
-typedef std::shared_ptr<g2o::Line3D> Line3DPtr;
-typedef std::shared_ptr<const g2o::Line3D> ConstLine3DPtr;
+// g2o::Line3D and Line3DPtr live in utils_g2o.h so this header compiles
+// without g2o on the include path (used by the TRT 10 network classes).
 
 // Eigen type
 typedef Eigen::Matrix<double, 5, 1> Vector5d;
@@ -99,22 +95,9 @@ void SaveTumTrajectoryToFile(const std::string file_path,
 void SaveTumTrajectoryToFile(const std::string file_path, 
     const std::vector<std::pair<std::string, Eigen::Matrix4d>>& trajectory);
 
+// SerializeLine3D moved to utils_g2o.h (depends on g2o::Line3D).
+
 // boost serialization
-template <class Archive>
-void SerializeLine3D(Archive &ar, Line3DPtr &line, const unsigned int version){
-  g2o::Vector6 v;
-  if (Archive::is_saving::value){
-    v = line->toCartesian();
-  }
-
-  ar & boost::serialization::make_array(v.data(), v.size());
-
-  if (Archive::is_loading::value){
-    g2o::Line3D line_3d = g2o::Line3D::fromCartesian(v);
-    line = std::make_shared<g2o::Line3D>(line_3d);
-  }
-}
-
 template<class Archive>
 void SerializeCVMat(Archive& ar, cv::Mat& mat, const unsigned int version){
   int cols, rows, type;

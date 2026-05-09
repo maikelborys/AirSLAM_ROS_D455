@@ -28,10 +28,10 @@
 //! Samples that use TRT at link time can define DEFINE_TRT_ENTRYPOINTS before including this header to
 //! pick up the definitions here.
 
-#include "NvCaffeParser.h"
+// NvCaffeParser.h and NvUffParser.h were removed in TensorRT 10. AirSLAM does
+// not use Caffe or UFF inputs (everything is ONNX), so these are dropped.
 #include "NvInfer.h"
 #include "NvOnnxParser.h"
-#include "NvUffParser.h"
 #include "logger.h"
 
 extern nvinfer1::IBuilder* createBuilder();
@@ -40,11 +40,7 @@ extern nvinfer1::IRefitter* createRefitter(nvinfer1::ICudaEngine& engine);
 
 extern nvonnxparser::IParser* createONNXParser(nvinfer1::INetworkDefinition& network);
 
-extern nvcaffeparser1::ICaffeParser* sampleCreateCaffeParser();
-extern void shutdownCaffeParser();
-
-extern nvuffparser::IUffParser* sampleCreateUffParser();
-extern void shutdownUffParser();
+// Caffe / UFF entrypoints removed — those parsers are gone from TensorRT 10.
 
 #if !defined(DEFINE_TRT_ENTRYPOINTS)
 #define DEFINE_TRT_ENTRYPOINTS 0
@@ -104,37 +100,7 @@ nvonnxparser::IParser* createONNXParser(nvinfer1::INetworkDefinition& network)
 #endif
 }
 
-nvcaffeparser1::ICaffeParser* sampleCreateCaffeParser()
-{
-#if DEFINE_TRT_LEGACY_PARSER_ENTRYPOINT
-    return nvcaffeparser1::createCaffeParser();
-#else
-    return {};
-#endif
-}
-
-void shutdownCaffeParser()
-{
-#if DEFINE_TRT_LEGACY_PARSER_ENTRYPOINT
-    nvcaffeparser1::shutdownProtobufLibrary();
-#endif
-}
-
-nvuffparser::IUffParser* sampleCreateUffParser()
-{
-#if DEFINE_TRT_LEGACY_PARSER_ENTRYPOINT
-    return nvuffparser::createUffParser();
-#else
-    return {};
-#endif
-}
-
-void shutdownUffParser()
-{
-#if DEFINE_TRT_LEGACY_PARSER_ENTRYPOINT
-    nvuffparser::shutdownProtobufLibrary();
-#endif
-}
+// Caffe / UFF entrypoint definitions removed — parsers gone from TensorRT 10.
 
 #endif // DEFINE_TRT_ENTRYPOINTS
 

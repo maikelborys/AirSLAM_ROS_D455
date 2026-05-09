@@ -10,6 +10,7 @@
 #include <NvInfer.h>
 #include <Eigen/Core>
 #include <NvOnnxParser.h>
+#include <cuda_runtime_api.h>
 #include <opencv2/opencv.hpp>
 
 
@@ -20,8 +21,9 @@ using tensorrt_buffer::TensorRTUniquePtr;
 
 class SuperPointLightGlue {
 public:
-    SuperPointLightGlue() {};
+    SuperPointLightGlue() : engine_(nullptr), stream_(nullptr) {};
     explicit SuperPointLightGlue(const PointMatcherConfig &lightglue_config);
+    ~SuperPointLightGlue();
 
     bool build();
 
@@ -48,6 +50,7 @@ private:
 
     std::shared_ptr<nvinfer1::ICudaEngine> engine_;
     std::shared_ptr<nvinfer1::IExecutionContext> context_;
+    cudaStream_t stream_;
 
     bool construct_network(TensorRTUniquePtr<nvinfer1::IBuilder> &builder,
                            TensorRTUniquePtr<nvinfer1::INetworkDefinition> &network,

@@ -24,7 +24,7 @@
 MapRefiner::MapRefiner(){
 }
 
-MapRefiner::MapRefiner(MapRefinementConfigs& configs, ros::NodeHandle nh): odometry_length(0), 
+MapRefiner::MapRefiner(MapRefinementConfigs& configs, rclcpp::Node::SharedPtr nh): odometry_length(0), 
     _configs(configs), _stop(false), _stopped(false), _map_ready(false){
   _point_matcher = std::shared_ptr<PointMatcher>(new PointMatcher(configs.point_matcher_config));
   _ros_publisher = std::shared_ptr<RosPublisher>(new RosPublisher(configs.ros_publisher_config, nh));

@@ -26,7 +26,7 @@
 MapUser::MapUser(){
 }
 
-MapUser::MapUser(RelocalizationConfigs& configs, ros::NodeHandle nh): _configs(configs), _stop(false){
+MapUser::MapUser(RelocalizationConfigs& configs, rclcpp::Node::SharedPtr nh): _configs(configs), _stop(false){
   _camera = std::shared_ptr<Camera>(new Camera(configs.camera_config_path));
   _feature_detector = std::shared_ptr<FeatureDetector>(new FeatureDetector(configs.plnet_config));
   _point_matcher = std::shared_ptr<PointMatcher>(new PointMatcher(configs.point_matcher_config));
