@@ -43,7 +43,7 @@ def generate_launch_description():
         ),
         Node(
             package='rviz2', executable='rviz2', name='rviz2',
-            arguments=['-d', os.path.join(pkg_share, 'rviz', 'relocalization.rviz')],
+            arguments=['-d', os.path.join(pkg_share, 'rviz', 'vo_jazzy.rviz')],
             output='screen', condition=IfCondition(visualization),
         ),
     ])

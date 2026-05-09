@@ -1,156 +1,184 @@
-<h1 align="center">AirSLAM: An Efficient and Illumination-Robust Point-Line Visual SLAM System</h1>
+<h1 align="center">AirSLAM — ROS 2 Jazzy + TensorRT 10 port</h1>
 
-<p align="center"><strong>
-    <a href = "https://scholar.google.com/citations?user=-p7HvCMAAAAJ&hl=zh-CN">Kuan Xu</a><sup>1</sup>,
-    <a href = "https://github.com/yuefanhao">Yuefan Hao</a><sup>2</sup>,
-    <a href = "https://scholar.google.com/citations?user=XcV_sesAAAAJ&hl=en">Shenghai Yuan</a><sup>1</sup>,
-    <a href = "https://sairlab.org/team/chenw/">Chen Wang</a><sup>2</sup>,
-    <a href = "https://scholar.google.com.sg/citations?user=Fmrv3J8AAAAJ&hl=en">Lihua Xie</a><sup>1</sup>
-</strong></p>
-
-<p align="center"><strong>
-    <a href = "https://www.ntu.edu.sg/cartin">1: Centre for Advanced Robotics Technology Innovation (CARTIN), Nanyang Technological University</a><br>
-    <a href = "https://sairlab.org/">2: Spatial AI & Robotics (SAIR) Lab, Computer Science and Engineering, University at Buffalo</a><br>
-</strong></p>
-
-<p align="center"><strong> 
-    <a href = "https://arxiv.org/pdf/2408.03520">&#128196; [PDF]</a> | 
-    <a href = "https://xukuanhit.github.io/airslam/">&#128190; [Project Site]</a> |
-    <a href = "https://youtu.be/5OcR5KeO5nc">&#127909; [Youtube]</a> |
-    <a href = "https://www.bilibili.com/video/BV1rJY7efE9x">&#127909; [Bilibili]</a>
-    <!-- &#128214; [OpenAccess] -->
-</strong></p>
-
-### Accepted to IEEE Transactions on Robotics (TRO), 2025
-
-### :scroll: AirSLAM has dual-mode (V-SLAM, VI-SLAM), upgraded from [AirVO (IROS'23)](https://github.com/sair-lab/AirSLAM/releases/tag/1.0)
-
-<p align="middle">
-  <img src="figures/system_arch.jpg" width="600" />
+<p align="center">
+    <em>Fork of <a href="https://github.com/sair-lab/AirSLAM">sair-lab/AirSLAM</a> (TRO 2025) ported to Ubuntu 24.04 / ROS 2 Jazzy / TensorRT 10.</em>
 </p>
 
-**AirSLAM** is an efficient visual SLAM system designed to tackle both short-term and long-term illumination
-challenges. Our system adopts a hybrid approach that combines deep learning techniques for feature detection and matching with traditional backend optimization methods. Specifically, we propose a unified convolutional neural network (CNN) that simultaneously extracts keypoints and structural lines. These features are then associated, matched, triangulated, and optimized in a coupled manner. Additionally, we introduce a lightweight relocalization pipeline that reuses the built map, where keypoints, lines, and a structure graph are used to match the query frame with the map. To enhance the applicability of the proposed system to real-world robots, we deploy and accelerate the feature detection and matching networks using C++ and NVIDIA TensorRT. Extensive experiments conducted on various datasets demonstrate that our system outperforms other state-of-the-art visual SLAM systems in illumination-challenging environments. Efficiency evaluations show that our system can run at a rate of 73Hz on a PC and 40Hz on an embedded platform.
-
-**Video**
-<p align="middle">
-<a href="https://youtu.be/5OcR5KeO5nc" target="_blank"><img src="figures/title.JPG" width="600" border="10"/></a>
+<p align="center">
+    Original authors:
+    <a href = "https://scholar.google.com/citations?user=-p7HvCMAAAAJ&hl=zh-CN">Kuan Xu</a>,
+    <a href = "https://github.com/yuefanhao">Yuefan Hao</a>,
+    <a href = "https://scholar.google.com/citations?user=XcV_sesAAAAJ&hl=en">Shenghai Yuan</a>,
+    <a href = "https://sairlab.org/team/chenw/">Chen Wang</a>,
+    <a href = "https://scholar.google.com.sg/citations?user=Fmrv3J8AAAAJ&hl=en">Lihua Xie</a>.
+    <a href = "https://arxiv.org/pdf/2408.03520">[paper]</a>
+    <a href = "https://xukuanhit.github.io/airslam/">[project site]</a>
 </p>
 
+<p align="center">
+    Port author: <a href="https://github.com/maikelborys">Maikel</a> (branch <code>jazzy-port</code>).
+</p>
 
-## :eyes: Updates
-* [2025.01] The paper [AirSLAM](https://arxiv.org/pdf/2408.03520) was officially accepted to IEEE Transactions on Robotics (TRO).
-* [2025.01] We release the training code for PLNet. The Python code for PLNet can now be found [here](https://github.com/sair-lab/PLNet).
-* [2024.08] We release the code and paper for AirSLAM.
-* [2023.07] AriVO is accepted by IROS 2023.
-* [2022.10] We release the code and paper for AirVO. The code for AirVO can now be found [here](https://github.com/sair-lab/AirSLAM/tree/airvo_iros).
+---
 
+**AirSLAM** is a hybrid (deep-learning + traditional optimisation) point-line visual SLAM that targets short- and long-term illumination changes. PLNet extracts point + line features in one pass, LightGlue / SuperGlue match them, and a relocalization pipeline lets the robot re-find itself in a previously-built map.
 
-## :checkered_flag: Test Environment
-### Dependencies
-* OpenCV 4.2
-* Eigen 3
-* Ceres 2.0.0
-* G2O (tag:20230223_git)
-* TensorRT 8.6.1.6
-* CUDA 12.1
-* python
-* ROS noetic
-* Boost
+This repository is the **ROS 2 Jazzy / TensorRT 10 port** of upstream `sair-lab/AirSLAM`. The `master` branch is the legacy ROS 1 + ros1_bridge fork for D455 (kept for reference); the current work lives on **`jazzy-port`**.
 
-### Docker (Recommend)
+## Validated results
+
+Running the three-phase pipeline on EuRoC `MH_03_medium` (RTX 4070 8 GB, FP32 + builderOptimizationLevel=5 + `--noTF32`):
+
+| Stage | Metric | Value |
+|---|---|---|
+| `visual_odometry` | Throughput | **38.3 FPS** stereo+IMU @ 752×480 |
+|  | Keyframes / mappoints | 302 / 49,325 |
+| `map_refinement` | Loop closures | 127 |
+|  | **ATE RMSE post-refinement** | **0.0386 m** (paper: ~0.04 m) |
+|  | Mappoint cleanup | 49,325 → 37,980 |
+| `relocalization` | Recall on 2,700 queries | **100 %** |
+|  | Latency | 49 ms / query (~20 Hz) |
+
+> The numbers in the paper's Table 2 are *post-refinement* (`trajectory_v1.txt`). Raw VO output (`trajectory_v0.txt`) sits at ~0.10 m on this sequence; refinement closes that gap.
+
+## What changed vs upstream
+
+This is an **API-compat port**, not a fork with new features. The algorithm is unchanged. Surface changes:
+
+### Build system
+- `package.xml` → format 3, `ament_cmake` (was catkin).
+- `CMakeLists.txt` → ament + two-library split:
+  - `air_slam_core_lib` — networks + geometry + g2o vertices/edges (no ROS deps).
+  - `air_slam_lib` — `Map` / `MapBuilder` / `MapRefiner` / `MapUser` / `RosPublisher` / `g2o_optimization` (ROS-aware).
+- `cmake/FindG2O.cmake` filters `NOTFOUND` from `G2O_LIBRARIES` so the slim `apt libg2o-dev` install (no hierarchical/incremental/parser libs) doesn't fail the configure step.
+- The original ROS 1 `CMakeLists.txt` is preserved at `CMakeLists.txt.ros1.bak`.
+
+### TensorRT 8 → 10 migration
+- `3rdparty/tensorrtbuffer/include/buffers.h` rewritten to the TRT 10 explicit-tensor API: `getNbIOTensors` / `setInputTensorAddress` / `enqueueV3`. `mDeviceBindings` is now a name-keyed `std::map<std::string, void*>`. New helper `setTensorAddresses(context)` wires every I/O device buffer onto the execution context.
+- `safe_common.h` got a fix for `roundUp` deduction now that `Dims.d[]` is `int64_t` in TRT 10.
+- `sample_entrypoints.h` had `NvCaffeParser.h` and `NvUffParser.h` removed (parsers gone in TRT 10).
+- Each network class (`SuperPoint`, `SuperGlue`, `SuperPointLightGlue`, `PLNet`) gained a private `cudaStream_t` and switched from `executeV2(bindings)` → `setInputShape(name, dims)` + `setTensorAddresses(ctx)` + `enqueueV3(stream)` + `cudaStreamSynchronize(stream)`. PLNet's cached binding-index members were removed (TRT 10 keys directly by tensor name).
+- A compile-only smoke test at `3rdparty/tensorrtbuffer/test/buffers_compile_test.cpp` runs on every build.
+- Two numerical-equivalence harnesses verify network output bit-matches the PyTorch / onnxruntime reference: `scripts/numerical_diff_superpoint.py` (cosine = 1.0) and `scripts/numerical_diff_lightglue.py` (cosine = 1.0 with `--builderOptimizationLevel=5 --noTF32`).
+
+### ROS 1 → ROS 2 Jazzy migration
+- `RosPublisher` rewritten on top of `rclcpp::Publisher<T>::SharedPtr` and `tf2_ros::TransformBroadcaster`. All ten upstream publishers (`/AirSLAM/feature`, `/AirSLAM/frame_pose`, `/AirSLAM/keyframe`, `/AirSLAM/odometry`, `/AirSLAM/map`, `/AirSLAM/mapline`, `/AirSLAM/reloc/{trajectory,pose,matches}`, `/AirSLAM/LatestOdometry`) preserved 1:1.
+- `MapBuilder`, `MapRefiner`, `MapUser` constructors now take `rclcpp::Node::SharedPtr` instead of `ros::NodeHandle`.
+- `MapRefiner::PubMap` and `MapUser::Relocalization` had their `ros::Time::now()` and `ros::Rate` replaced with `std::chrono` and `rclcpp::Rate`.
+- The four executables (`visual_odometry`, `map_refinement`, `relocalization`, `test_feature`) rewritten with `rclcpp::init` / `Node::declare_parameter` / `Node::get_parameter` / `rclcpp::ok` / `rclcpp::shutdown`.
+- Every ROS 1 `.launch` XML converted to a ROS 2 `.launch.py` (10 files total).
+- A new `rviz/vo_jazzy.rviz` covers all topics with explicit QoS (`Reliability=Reliable`, `Durability=Volatile`, `History=Keep Last`, depth=10) so RViz2 subscribes cleanly.
+
+### Engine pipeline
+- `scripts/patch_onnx_for_trt10.py` inserts `Cast Int32 → Int64` nodes on `Concat` / `Mul` / `Add` / `Where` / etc. ops that TRT 10's stricter ONNX importer rejects (zero patches needed for LightGlue and PLNet, 1 for SuperPoint, 156 for SuperGlue).
+- `scripts/build_engines.sh` regenerates the five `.engine` files from the patched ONNX with `trtexec`. Defaults to `--noTF32 --builderOptimizationLevel=5` for the most accurate kernels (overridable via `PRECISION_FLAG=` and `OPT_LEVEL=` env vars).
+
+### Refactor: `utils.h` decoupling
+- The `g2o::Line3D`-dependent helpers moved to a new `include/utils_g2o.h`. The TRT 10 network sources (super_point, plnet, etc.) now compile without `g2o` on the include path, which keeps `air_slam_core_lib` ROS-and-g2o-free.
+
+## Install (Ubuntu 24.04 + ROS 2 Jazzy)
+
+System dependencies — one-time:
+
 ```bash
-docker pull xukuanhit/air_slam:v4
-docker run -it --env DISPLAY=$DISPLAY --volume /tmp/.X11-unix:/tmp/.X11-unix --privileged --runtime nvidia --gpus all --volume ${PWD}:/workspace --workdir /workspace --name air_slam xukuanhit/air_slam:v4 /bin/bash
+sudo apt install -y \
+  ros-jazzy-desktop ros-jazzy-cv-bridge ros-jazzy-image-transport \
+  ros-jazzy-tf2 ros-jazzy-tf2-ros ros-jazzy-tf2-geometry-msgs \
+  libg2o-dev libgoogle-glog-dev libgflags-dev \
+  libopencv-dev libeigen3-dev libyaml-cpp-dev libboost-serialization-dev
 ```
 
-### Jetson
-Due to ROS dependencies and certain operators used in PLNet, deploying AirSLAM on the Jetson platform requires a rather involved process. [This blog](https://blog.csdn.net/weixin_47586484/article/details/154980365?spm=1001.2014.3001.5502) provides a useful reference for that deployment.
+Plus a working **CUDA 12.x + TensorRT 10** install (host has CUDA 12.6 + TRT 10.16). For ONNX patching:
 
-
-## :book: Data
-The data for mapping should be organized in the following Autonomous Systems Lab (ASL) dataset format (imu data is optional):
-
-```
-dataroot
-├── cam0
-│   └── data
-│       ├── t0.jpg
-│       ├── t1.jpg
-│       ├── t2.jpg
-│       └── ......
-├── cam1
-│   └── data
-│       ├── t0.jpg
-│       ├── t1.jpg
-│       ├── t2.jpg
-│       └── ......
-└── imu0
-    └── data.csv
-
-```
-After the map is built, the relocalization requires only monocular images. Therefore, you only need to place the query images in a folder.
-
-
-## :computer: Build
-```
-    cd ~/catkin_ws/src
-    git clone https://github.com/sair-lab/AirSLAM.git
-    cd ../
-    catkin_make
-    source ~/catkin_ws/devel/setup.bash
+```bash
+uv venv ~/.airslam_venv --python 3.12
+source ~/.airslam_venv/bin/activate
+uv pip install onnx onnx-graphsurgeon onnxruntime opencv-python numpy
 ```
 
-## :running: Run 
+Clone + symlink into a colcon workspace:
 
-The launch files for VO/VIO, map optimization, and relocalization are placed in [VO folder](launch/visual_odometry), [MR folder](launch/map_refinement), and [Reloc folder](launch/relocalization), respectively. Before running them, you need to modify the corresponding configurations according to your data path and the desired map-saving path. The following is an example of mapping, optimization, and relocalization with the EuRoC dataset.  
-
-
-### Mapping
-**1**: Change "dataroot" in [VO launch file](launch/visual_odometry/vo_euroc.launch) to your own data path. For the EuRoC dataset, "mav0" needs to be included in the path.
-
-**2**: Change "saving_dir" in the same file to the path where you want to save the map and trajectory. **It must be an existing folder.**
-
-**3**: Run the launch file:
-
-```
-roslaunch air_slam vo_euroc.launch 
+```bash
+git clone -b jazzy-port https://github.com/maikelborys/AirSLAM_ROS_D455.git ~/coding/AirSLAM
+ln -s ~/coding/AirSLAM ~/ros2_ws/src/air_slam
 ```
 
-### Map Optimization
-**1**: Change "map_root" in [MR launch file](launch/map_refinement/mr_euroc.launch) to your own map path.
+Build:
 
-**2**: Run the launch file:
-
-```
-roslaunch air_slam mr_euroc.launch 
-```
-
-### Relocalization
-**1**: Change "dataroot" in [Reloc launch file](launch/relocalization/reloc_euroc.launch) to your own query data path.
-
-**2**: Change "map_root" in the same file to your own map path.
-
-**3**: Run the launch file:
-
-```
-roslaunch air_slam reloc_euroc.launch 
+```bash
+cd ~/ros2_ws
+source /opt/ros/jazzy/setup.bash
+colcon build --packages-select air_slam --symlink-install
 ```
 
-### Other datasets
-[Launch folder](launch) and [config folder](configs) respectively provide the launch files and configuration files for other datasets in the paper. If you want to run AirSLAM with your own dataset, you need to create your own camera file, configuration file, and launch file. 
+Generate engines (≈5 min on RTX 4070):
 
+```bash
+source ~/.airslam_venv/bin/activate
+cd ~/coding/AirSLAM
+python scripts/patch_onnx_for_trt10.py output/superpoint_v1_sim_int32.onnx \
+                                       output/superpoint_lightglue.onnx \
+                                       output/superglue_outdoor_sim_int32.onnx \
+                                       output/superglue_indoor_sim_int32.onnx \
+                                       output/plnet_s0.onnx output/plnet_s1.onnx
+bash scripts/build_engines.sh
+```
 
-## :writing_hand: TODO List
+## Run
 
-- [x] Initial release. :rocket:
-- [ ] Support more GPUs and development environments
-- [ ] Support SuperGlue as the feature matcher
-- [ ] Optimize the TensorRT acceleration of PLNet
-- [ ] Optimize the evaluation using [PyPose](https://pypose.org/docs/main/metric/)
+EuRoC `MH_03_medium` end-to-end pipeline (the validation flow):
 
+```bash
+source /opt/ros/jazzy/setup.bash
+source ~/ros2_ws/install/setup.bash
 
-## :pencil: Citation
+# 1. Visual-inertial odometry — builds an initial map.
+ros2 launch air_slam vo_euroc.launch.py \
+  dataroot:=/path/to/MH_03_medium/mav0 \
+  saving_dir:=/tmp/airslam_mh03 \
+  model_dir:=/home/maikel/coding/AirSLAM/output
+
+# 2. Offline map refinement (loop closure + global BA + map merge).
+ros2 launch air_slam mr_euroc.launch.py \
+  map_root:=/tmp/airslam_mh03 \
+  model_dir:=/home/maikel/coding/AirSLAM/output
+
+# 3. Relocalization — query images against the refined map.
+ros2 launch air_slam reloc_euroc.launch.py \
+  map_root:=/tmp/airslam_mh03 \
+  dataroot:=/path/to/MH_03_medium/mav0/cam0/data \
+  model_dir:=/home/maikel/coding/AirSLAM/output
+
+# 4. Compute ATE.
+evo_ape tum  /path/to/MH_03_medium/mav0/state_groundtruth_estimate0/data_tum.txt \
+             /tmp/airslam_mh03/trajectory_v1.txt -va
+```
+
+All launches accept `visualization:=false` to suppress RViz2.
+
+## RViz topics (preconfigured in `rviz/vo_jazzy.rviz`)
+
+| Topic | Type | Display |
+|---|---|---|
+| `/AirSLAM/feature` | `sensor_msgs/Image` | Live image with feature/match overlay |
+| `/AirSLAM/frame_pose` | `geometry_msgs/PoseStamped` | Current camera pose (axes) |
+| `/AirSLAM/odometry` | `nav_msgs/Path` | Trajectory polyline (green) |
+| `/AirSLAM/keyframe` | `geometry_msgs/PoseArray` | Keyframe axes (red) |
+| `/AirSLAM/map` | `sensor_msgs/PointCloud` | Mappoints (yellow points) |
+| `/AirSLAM/mapline` | `visualization_msgs/Marker` | 3D line segments |
+| `/AirSLAM/LatestOdometry` | `nav_msgs/Odometry` | Per-frame odometry |
+| `/AirSLAM/reloc/trajectory` | `Marker` | Reloc query trail (green spheres) |
+| `/AirSLAM/reloc/pose` | `PoseStamped` | Reloc current pose (cyan axes) |
+| `/AirSLAM/reloc/matches` | `Marker` | Camera↔mappoint match lines |
+
+TF tree: `map → camera`, broadcast by `RosPublisher` once per frame.
+
+## Original supported sequences
+
+The `launch/` folder still ships the same configuration variants as upstream — EuRoC dark, OIVIO, TartanAir, UMA Bumblebee — only with `.launch.py` versions. Adapt `dataroot:=` to your local paths.
+
+## Citation
+
 ```bibtex
 @article{xu2024airslam,
   title = {{AirSLAM}: An Efficient and Illumination-Robust Point-Line Visual SLAM System},
@@ -160,14 +188,8 @@ roslaunch air_slam reloc_euroc.launch
   url = {https://arxiv.org/abs/2408.03520},
   code = {https://github.com/sair-lab/AirSLAM},
 }
-
-@inproceedings{xu2023airvo,
-  title = {{AirVO}: An Illumination-Robust Point-Line Visual Odometry},
-  author = {Xu, Kuan and Hao, Yuefan and Yuan, Shenghai and Wang, Chen and Xie, Lihua},
-  booktitle = {IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)},
-  year = {2023},
-  url = {https://arxiv.org/abs/2212.07595},
-  code = {https://github.com/sair-lab/AirVO},
-  video = {https://youtu.be/YfOCLll_PfU},
-}
 ```
+
+## License
+
+Original AirSLAM license (see `LICENSE.md`). Port additions inherit the same.
