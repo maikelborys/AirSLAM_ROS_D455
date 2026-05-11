@@ -8,7 +8,7 @@
 plnet:
   feature_extractor: 2          # XFeat
   use_superpoint: 0
-  max_keypoints: 1024           # MUST match the lighterglue.pt trace --num-kpts
+  max_keypoints: 512            # MUST match the lighterglue.pt trace --num-kpts
   keypoint_threshold: 0.05
   remove_borders: 4
   line_threshold: 0.75

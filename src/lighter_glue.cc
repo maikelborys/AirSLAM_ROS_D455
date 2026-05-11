@@ -12,7 +12,8 @@ struct LighterGlue::Impl {
   bool loaded{false};
   // Static keypoint count baked into the trace (must match
   // scripts/export_lighterglue_torchscript.py --num-kpts at export time).
-  int trace_N{1024};
+  // 512 keeps attention cost O(N^2) manageable: 1024 was 4x slower per call.
+  int trace_N{512};
 };
 
 LighterGlue::LighterGlue(const PointMatcherConfig& config)
