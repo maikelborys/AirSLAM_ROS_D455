@@ -1,0 +1,42 @@
+# Map refinement (loop closure + global BA) with XFeat 64-dim features.
+# Uses voc/point_voc_L4_xfeat.bin (trained from-scratch on EuRoC TRAIN
+# sequences using XFeat — fully Apache-2.0, no SuperPoint license taint).
+#
+# The map produced by vo_euroc_xfeat.launch.py stores XFeat descriptors
+# padded to 256-dim (zeros in rows 64..255). DBoW2 distance is L2, so the
+# zero pads contribute nothing and the vocabulary effectively operates on
+# the 64-dim XFeat manifold — no Database refactor needed.
+
+point_matcher:
+  matcher: 2                   # 0 = lightglue, 1 = superglue, 2 = MNN (XFeat)
+  image_width: 752
+  image_height: 480
+  descriptor_dim: 64
+  min_cosine_similarity: 0.70
+  lowe_ratio: 0.95
+  require_mutual_nn: 1
+  onnx_file: ""                # MNN has no engine
+  engine_file: ""
+
+optimization:
+  mono_point: 50
+  stereo_point: 75
+  mono_line: 50
+  stereo_line: 75
+  rate: 0.5
+
+ros_publisher:
+  feature: 0
+  feature_topic: "/AirSLAM/feature"
+  frame_pose: 0
+  frame_pose_topic: "/AirSLAM/frame_pose"
+  frame_odometry_topic: "/AirSLAM/LatestOdometry"
+  keyframe: 1
+  keyframe_topic: "/AirSLAM/keyframe"
+  path_topic: "/AirSLAM/odometry"
+  map: 1
+  map_topic: "/AirSLAM/map"
+  mapline: 0                   # no lines in XFeat mode
+  mapline_topic: "/AirSLAM/mapline"
+  reloc: 0
+  reloc_topic: "/AirSLAM/reloc"

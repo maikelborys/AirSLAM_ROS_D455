@@ -158,7 +158,7 @@ ament_target_dependencies(air_slam_lib
 # ----------------------------------------------------------------------------
 # Demo executables
 # ----------------------------------------------------------------------------
-foreach(demo visual_odometry map_refinement relocalization test_feature test_xfeat)
+foreach(demo visual_odometry map_refinement relocalization test_feature test_xfeat train_voc_xfeat)
   add_executable(${demo} demo/${demo}.cpp)
   ament_target_dependencies(${demo} rclcpp)
   target_link_libraries(${demo} air_slam_lib)
