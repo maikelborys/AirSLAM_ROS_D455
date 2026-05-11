@@ -1,6 +1,77 @@
-# CLAUDE.md — AirSLAM (ROS 2 Jazzy + TensorRT 10 port)
+# CLAUDE.md — AirSLAM-XFeat (ROS 2 Jazzy + TensorRT 10 + XFeat 64-dim)
 
-This file is the orientation map for Claude Code working inside `~/coding/AirSLAM/`. The full README is at `README.md`; this file captures only the load-bearing constraints and conventions a session would not otherwise re-derive from the code.
+This file is the orientation map for Claude Code working inside `~/coding/AirSLAM_XFEAT/` on branch **`jazzy-xfeat-ros2`**. The full README delta is at `README_JAZZY_XFEAT.md`; the SuperPoint-era doc is preserved below.
+
+## What this branch is
+
+Fork-of-fork of [`maikelborys/AirSLAM_ROS_D455`](https://github.com/maikelborys/AirSLAM_ROS_D455) `jazzy-port` (the ROS 2 Jazzy + TRT 10 port that gets 0.0386 m ATE post-refinement on EuRoC MH_03). Active branch is **`jazzy-xfeat-ros2`**. Package was renamed `air_slam` → **`air_slam_xfeat`** so both pipelines (SuperPoint and XFeat) can coexist in the same `~/ros2_ws/` for A/B comparison.
+
+This branch's mission: **swap SuperPoint (256-dim) for XFeat (Verlab `accelerated_features` v0.1, 64-dim)** in AirSLAM's point extraction path, generalise the descriptor dimension through the matcher, and benchmark on EuRoC. The SLAM math (g2o optimisation, IMU integration, keyframe management) is unchanged from `jazzy-port`.
+
+## XFeat-mode hard rules (additional to the inherited ones below)
+
+X1. **XFeat ONNX export is STATIC SHAPE only**. `modules/model.py:135` calls an InstanceNorm path that traces through `Unfold`; under dynamic axes `torch.onnx.export` raises `Unsupported: ONNX export of operator Unfold, input size not accessible`. The engine therefore expects `1x1x480x752` exactly. AirSLAM resizes every frame to that size before `XFeat::infer()` and scales keypoints back. If you change `xfeat_input_height` / `xfeat_input_width` in the YAML, you MUST re-export the ONNX with matching `--height` / `--width` and rebuild the engine.
+
+X2. **The XFeat class outputs a 67-row Eigen matrix** (3 + 64) — not the 259-row matrix the rest of AirSLAM uses. `feature_detector.cc::DetectXFeat` pads the 64-dim descriptor up to 256-dim with **zeros** so the existing `Eigen::Matrix<float, 259, Dynamic>` plumbing keeps working. **Do not consume rows 67..258 in XFeat mode** — they are pad zeros and will give garbage cosine similarity. The MNN matcher (Phase 5) only reads rows 3..66; LighterGlue (future work) must do the same.
+
+X3. **XFeat post-processing runs on the host (CPU)**. Softmax over 65 channels, `cv::dilate` NMS, top-K, bilinear sample of `feats` and `rel` are all in `src/xfeat.cpp`. Engine compute itself is 0.7 ms on GPU. The CPU post-processing is currently the dominant per-frame cost of the XFeat path (~3–4 ms vs SuperPoint's ~1 ms). Plan to port to CUDA when chasing FPS.
+
+X4. **MNN matcher is the default for XFeat**. LighterGlue (the official XFeat matcher) is *not* in the pinned `accelerated_features@v0.1` we export from — it landed in a later commit. Plan deferred it (Phase 5 picked MNN), see `output/benchmarks_xfeat.md` "Future work". The MNN matcher lives inline in `src/point_matcher.cc`; descriptors are L2-normalised inside `xfeat.cpp` so cosine = dot product.
+
+X5. **`feature_extractor` is the new dispatch key**. `read_configs.h::PLNetConfig::feature_extractor`: 0 = PLNet, 1 = SuperPoint, 2 = XFeat. The legacy `use_superpoint` bool is kept as a read-only back-compat alias. `FeatureDetector` builds **only the selected backbone** — running XFeat mode does NOT require `plnet_s0.engine` to exist.
+
+X6. **No lines, no vocab in this branch** (yet). Lines via PLNet wireframe head are deferred (the user accepted "sin líneas y luego añadiremos si métricas buenas"); the 64-dim DBoW2 vocab is deferred (only needed for map_refinement + relocalization, not for raw VO). Both are listed in `output/benchmarks_xfeat.md` "Future work". `map_refinement` and `relocalization` will not give meaningful results in XFeat mode until the vocab lands.
+
+## XFeat-specific critical files
+
+| Path | Why it matters |
+|---|---|
+| `include/xfeat.h`, `src/xfeat.cpp` | XFeat wrapper. Mirrors `super_point.{h,cpp}`. Native 67-row output. |
+| `scripts/export_xfeat_onnx.py`, `scripts/get_xfeat_onnx.sh` | Reproducible ONNX export from `verlab/accelerated_features@v0.1` via a throwaway uv venv. |
+| `scripts/numerical_diff_xfeat.py` | Regression guard: cos≥0.999 vs onnxruntime CPU reference, max\|d\|≤1e-3. Run after any change to the engine, export, or post-processing. |
+| `demo/test_xfeat.cpp` | Standalone smoke test — bypasses FeatureDetector, dumps top-K kpts + timings. |
+| `configs/visual_odometry/vo_euroc_xfeat.yaml` | EuRoC + XFeat + MNN tunings. Mirror of `vo_euroc.yaml`. |
+| `launch/visual_odometry/vo_euroc_xfeat.launch.py` | Same shape as `vo_euroc.launch.py` but `package='air_slam_xfeat'` and the XFeat yaml. |
+| `output/benchmarks_xfeat.md` | First-cut ATE numbers, bottleneck analysis, future work. |
+
+## Reproducing the bring-up
+
+```bash
+cd ~/coding/AirSLAM_XFEAT
+bash scripts/get_xfeat_onnx.sh                          # ~3 min first time, idempotent
+python scripts/patch_onnx_for_trt10.py output/xfeat.onnx
+BUILD_ENGINES=xfeat bash scripts/build_engines.sh       # ~30 s
+
+# Regression guards (MUST PASS):
+source ~/.cache/airslam_xfeat/export_venv/bin/activate
+python scripts/numerical_diff_xfeat.py \
+  --image /home/maikel/datasets/euroc/MH_03_medium/mav0/cam0/data/$(ls /home/maikel/datasets/euroc/MH_03_medium/mav0/cam0/data/ | head -1) \
+  --onnx output/xfeat_trt10.onnx --engine output/xfeat.engine
+
+# Symlinked into ~/ros2_ws/src/air_slam_xfeat:
+cd ~/ros2_ws && source /opt/ros/jazzy/setup.bash
+colcon build --packages-select air_slam_xfeat --symlink-install
+
+# Smoke test:
+source install/setup.bash
+ros2 run air_slam_xfeat test_xfeat \
+  --image /home/maikel/datasets/euroc/MH_03_medium/mav0/cam0/data/$(ls /home/maikel/datasets/euroc/MH_03_medium/mav0/cam0/data/ | head -1)
+
+# Full EuRoC VO benchmark:
+mkdir -p /tmp/airslam_xfeat_mh03
+ros2 launch air_slam_xfeat vo_euroc_xfeat.launch.py \
+  dataroot:=/home/maikel/datasets/euroc/MH_03_medium/mav0 \
+  visualization:=false \
+  saving_dir:=/tmp/airslam_xfeat_mh03 \
+  model_dir:=/home/maikel/coding/AirSLAM_XFEAT/output
+evo_ape tum \
+  /home/maikel/datasets/euroc/MH_03_medium/mav0/state_groundtruth_estimate0/data_tum.txt \
+  /tmp/airslam_xfeat_mh03/trajectory_v0.txt -va
+```
+
+---
+
+# Original CLAUDE.md from jazzy-port (preserved for reference)
 
 ## What this is
 
