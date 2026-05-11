@@ -82,6 +82,44 @@ struct SuperPointConfig {
   std::string engine_file;
 };
 
+// XFeat (Verlab accelerated_features) — 64-dim dense descriptors. The TRT
+// engine is static-shape so the YAML carries input_height / input_width;
+// AirSLAM resizes every frame to (input_height, input_width) before infer().
+struct XFeatConfig {
+  XFeatConfig() {}
+  void Load(const YAML::Node& xfeat_node) {
+    max_keypoints = xfeat_node["max_keypoints"].as<int>();
+    keypoint_threshold = xfeat_node["keypoint_threshold"].as<float>();
+    remove_borders = xfeat_node["remove_borders"].as<int>();
+    nms_kernel_size = xfeat_node["nms_kernel_size"].as<int>(5);
+    input_height = xfeat_node["input_height"].as<int>(480);
+    input_width  = xfeat_node["input_width"].as<int>(752);
+    dla_core = xfeat_node["dla_core"].as<int>(-1);
+    const YAML::Node in_node = xfeat_node["input_tensor_names"];
+    for (size_t i = 0; i < in_node.size(); ++i) {
+      input_tensor_names.push_back(in_node[i].as<std::string>());
+    }
+    const YAML::Node out_node = xfeat_node["output_tensor_names"];
+    for (size_t i = 0; i < out_node.size(); ++i) {
+      output_tensor_names.push_back(out_node[i].as<std::string>());
+    }
+    onnx_file = xfeat_node["onnx_file"].as<std::string>();
+    engine_file = xfeat_node["engine_file"].as<std::string>();
+  }
+
+  int max_keypoints;
+  float keypoint_threshold;
+  int remove_borders;
+  int nms_kernel_size;
+  int input_height;
+  int input_width;
+  int dla_core;
+  std::vector<std::string> input_tensor_names;
+  std::vector<std::string> output_tensor_names;
+  std::string onnx_file;
+  std::string engine_file;
+};
+
 struct PointMatcherConfig {
   PointMatcherConfig() {}
   void Load(const YAML::Node& point_matcher_node){
