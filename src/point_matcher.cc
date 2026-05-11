@@ -1,6 +1,72 @@
 #include "point_matcher.h"
 
+#include <cublas_v2.h>
+#include <cuda_runtime.h>
+
 #include <opencv2/opencv.hpp>
+
+
+PointMatcher::~PointMatcher() {
+  if (_d_desc0) cudaFree(_d_desc0);
+  if (_d_desc1) cudaFree(_d_desc1);
+  if (_d_S)     cudaFree(_d_S);
+  if (_cublas_handle) cublasDestroy(reinterpret_cast<cublasHandle_t>(_cublas_handle));
+}
+
+void PointMatcher::EnsureCudaBuffers(int N, int D) {
+  if (N <= _d_capacity_n && D == _d_capacity_d && _cublas_handle) return;
+  // Reallocate; round N up to the next 128 to amortise reallocs.
+  const int newN = ((N + 127) / 128) * 128;
+  if (_d_desc0) cudaFree(_d_desc0);
+  if (_d_desc1) cudaFree(_d_desc1);
+  if (_d_S)     cudaFree(_d_S);
+  cudaMalloc(&_d_desc0, sizeof(float) * D * newN);
+  cudaMalloc(&_d_desc1, sizeof(float) * D * newN);
+  cudaMalloc(&_d_S,     sizeof(float) * newN * newN);
+  _d_capacity_n = newN;
+  _d_capacity_d = D;
+  if (!_cublas_handle) {
+    cublasHandle_t h;
+    cublasCreate(&h);
+    _cublas_handle = reinterpret_cast<cublasContext*>(h);
+  }
+}
+
+bool PointMatcher::ComputeCosineMatrixGPU(const float* desc0, int N0,
+                                          const float* desc1, int N1,
+                                          int D, std::vector<float>& S_host) {
+  EnsureCudaBuffers(std::max(N0, N1), D);
+  // Copy descriptors host->device. Eigen .block() returns column-major DxN,
+  // which is what cuBLAS expects natively.
+  cudaMemcpy(_d_desc0, desc0, sizeof(float) * D * N0, cudaMemcpyHostToDevice);
+  cudaMemcpy(_d_desc1, desc1, sizeof(float) * D * N1, cudaMemcpyHostToDevice);
+  // Compute S row-major N0xN1 directly by exploiting:
+  //   S row-major(N0xN1)  ==  S^T col-major(N1xN0)
+  //   S^T(i', j') = S(j', i') = <D0[:,j'], D1[:,i']> = <D1[:,i'], D0[:,j']>
+  // So cuBLAS computes C = D1^T * D0 (col-major), and the bytes layout in
+  // memory is exactly what we'd see for S row-major. No CPU transpose.
+  // cublasSgemm with op_a=T, op_b=N:
+  //   C(MxN) = A^T(MxK) * B(KxN)
+  //   M = N1, N = N0, K = D
+  //   A = desc1 (DxN1 col-major, leading dim D)
+  //   B = desc0 (DxN0 col-major, leading dim D)
+  //   C col-major N1xN0 = S row-major N0xN1 — same memory layout.
+  const float alpha = 1.0f, beta = 0.0f;
+  cublasStatus_t st = cublasSgemm(
+      reinterpret_cast<cublasHandle_t>(_cublas_handle),
+      CUBLAS_OP_T, CUBLAS_OP_N,
+      N1, N0, D,
+      &alpha, _d_desc1, D,
+              _d_desc0, D,
+      &beta,  _d_S, N1);
+  if (st != CUBLAS_STATUS_SUCCESS) {
+    std::cerr << "cublasSgemm failed: " << st << std::endl;
+    return false;
+  }
+  S_host.resize(static_cast<size_t>(N0) * N1);
+  cudaMemcpy(S_host.data(), _d_S, sizeof(float) * N0 * N1, cudaMemcpyDeviceToHost);
+  return true;
+}
 
 
 PointMatcher::PointMatcher(const PointMatcherConfig& config) : _config(config){
@@ -68,14 +134,29 @@ int PointMatcher::MatchingPoints(const Eigen::Matrix<float, 259, Eigen::Dynamic>
     // MNN + Lowe ratio on XFeat 64-dim descriptors. Descriptors live in
     // rows 3..(3+D-1) of the feature matrices; XFeat already L2-normalised
     // them in xfeat.cpp, so cosine_sim == dot product.
+    //
+    // The N0xN1 cosine matrix is computed by cuBLAS SGEMM on GPU
+    // (D*N0*N1 FLOPs — ~10 ms on CPU Eigen, ~0.3 ms on a discrete GPU
+    // including H2D/D2H copies). The row/col scans that follow are O(N)
+    // and stay on the host.
     // -------------------------------------------------------------------
     const int D = _config.descriptor_dim;
     const int N0 = features0.cols();
     const int N1 = features1.cols();
     Eigen::MatrixXf desc0 = features0.block(3, 0, D, N0);
     Eigen::MatrixXf desc1 = features1.block(3, 0, D, N1);
-    // Cosine similarity matrix S(i, j) = <desc0[:, i], desc1[:, j]>.
-    Eigen::MatrixXf S = desc0.transpose() * desc1;  // N0 x N1
+    std::vector<float> S_row;  // row-major N0 x N1
+    if (!ComputeCosineMatrixGPU(desc0.data(), N0, desc1.data(), N1, D, S_row)) {
+      // GPU failed — fall back to Eigen so we still produce matches.
+      Eigen::MatrixXf S = desc0.transpose() * desc1;
+      S_row.resize(static_cast<size_t>(N0) * N1);
+      for (int i = 0; i < N0; ++i)
+        for (int j = 0; j < N1; ++j)
+          S_row[static_cast<size_t>(i) * N1 + j] = S(i, j);
+    }
+    auto S_at = [&](int i, int j) -> float {
+      return S_row[static_cast<size_t>(i) * N1 + j];
+    };
 
     // For each row i, find best j and second-best.
     std::vector<int> row_best_j(N0, -1);
@@ -84,8 +165,9 @@ int PointMatcher::MatchingPoints(const Eigen::Matrix<float, 259, Eigen::Dynamic>
     for (int i = 0; i < N0; ++i) {
       float best = -1.0f, second = -1.0f;
       int   best_j = -1;
+      const float* row = &S_row[static_cast<size_t>(i) * N1];
       for (int j = 0; j < N1; ++j) {
-        const float v = S(i, j);
+        const float v = row[j];
         if (v > best) {
           second = best;
           best = v;
@@ -106,7 +188,7 @@ int PointMatcher::MatchingPoints(const Eigen::Matrix<float, 259, Eigen::Dynamic>
         float best = -1.0f;
         int   best_i = -1;
         for (int i = 0; i < N0; ++i) {
-          const float v = S(i, j);
+          const float v = S_at(i, j);
           if (v > best) {
             best = v;
             best_i = i;

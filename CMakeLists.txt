@@ -111,6 +111,7 @@ target_link_libraries(air_slam_core_lib
     nvinfer
     nvonnxparser
     CUDA::cudart
+    CUDA::cublas
     ${G2O_LIBRARIES}
     ${GFLAGS_LIBRARIES}
     ${GLOG_LIBRARIES}
