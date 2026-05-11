@@ -75,15 +75,18 @@ run_trtexec "SuperPoint v1" \
 fi
 
 # XFeat (Verlab accelerated_features) — single input, three outputs (feats,
-# keypts, rel). Same dynamic-shape contract as SuperPoint so the engine works
-# across EuRoC (480x752) and D455 (480x848 / 720x1280) without rebuilding.
+# keypts, rel). The ONNX export is STATIC SHAPE: torch.onnx.export raises
+# `Unsupported: ONNX export of operator Unfold, input size not accessible`
+# under dynamic axes (caused by InstanceNorm+Unfold in modules/model.py).
+# AirSLAM resizes every input to (H, W) = (480, 752) before infer(). To
+# support other input sizes (D455 720x1280, etc.) re-export with --height
+# / --width and rebuild this engine to match.
 if want xfeat; then
-run_trtexec "XFeat (FCN forward — 64-dim dense descriptors)" \
+XFEAT_H="${XFEAT_H:-480}"
+XFEAT_W="${XFEAT_W:-752}"
+run_trtexec "XFeat (FCN forward — 64-dim dense descriptors, ${XFEAT_H}x${XFEAT_W})" \
   --onnx=xfeat_trt10.onnx \
-  --saveEngine=xfeat.engine \
-  --minShapes=image:1x1x100x100 \
-  --optShapes=image:1x1x480x752 \
-  --maxShapes=image:1x1x1500x1500
+  --saveEngine=xfeat.engine
 fi
 
 if want lightglue; then

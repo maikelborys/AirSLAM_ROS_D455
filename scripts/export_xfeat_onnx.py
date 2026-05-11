@@ -74,9 +74,13 @@ def main() -> int:
     p.add_argument("--width", type=int, default=752,
                    help="Dummy-input width for tracing. AirSLAM uses dynamic W.")
     p.add_argument("--opset", type=int, default=17)
-    p.add_argument("--static-shapes", action="store_true",
-                   help="Disable dynamic axes (debugging only — TRT engines built "
-                        "from static-shape ONNX cannot handle variable image sizes).")
+    p.add_argument("--dynamic-shapes", action="store_true",
+                   help="Mark H, W as dynamic axes. XFeat's InstanceNorm + Unfold "
+                        "path is NOT compatible with dynamic-axes tracing under "
+                        "torch.onnx.export (it raises `Unsupported: ONNX export of "
+                        "operator Unfold, input size not accessible`). Off by "
+                        "default: the engine is fixed at H,W and AirSLAM resizes "
+                        "the image to that size before calling infer().")
     args = p.parse_args()
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -94,9 +98,9 @@ def main() -> int:
     dummy = torch.zeros(1, 1, args.height, args.width, dtype=torch.float32)
 
     dynamic_axes = None
-    if not args.static_shapes:
-        # AirSLAM resizes inputs per-frame inside SuperPoint::infer(); the engine
-        # must accept (H, W) in [100, 1500]. Make H, W dynamic on every tensor.
+    if args.dynamic_shapes:
+        # Opt-in; will fail unless upstream replaces InstanceNorm with a path
+        # that does not trace through Unfold under dynamic shapes.
         dynamic_axes = {
             "image":  {2: "H",  3: "W"},
             "feats":  {2: "H8", 3: "W8"},
