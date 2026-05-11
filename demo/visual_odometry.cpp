@@ -18,16 +18,22 @@ int main(int argc, char **argv) {
   auto node = rclcpp::Node::make_shared("air_slam_visual_odometry");
 
   std::string config_path, model_dir, dataroot, camera_config_path, saving_dir;
+  int max_frames = 0;       // 0 = full sequence
+  int skip_save_map = 0;    // 1 = skip 1+ GB map serialisation (debug fast-iter)
   node->declare_parameter<std::string>("config_path", "");
   node->declare_parameter<std::string>("model_dir", "");
   node->declare_parameter<std::string>("dataroot", "");
   node->declare_parameter<std::string>("camera_config_path", "");
   node->declare_parameter<std::string>("saving_dir", "");
+  node->declare_parameter<int>("max_frames", 0);
+  node->declare_parameter<int>("skip_save_map", 0);
   node->get_parameter("config_path", config_path);
   node->get_parameter("model_dir", model_dir);
   node->get_parameter("dataroot", dataroot);
   node->get_parameter("camera_config_path", camera_config_path);
   node->get_parameter("saving_dir", saving_dir);
+  node->get_parameter("max_frames", max_frames);
+  node->get_parameter("skip_save_map", skip_save_map);
 
   VisualOdometryConfigs configs(config_path, model_dir);
   std::cout << "config done" << std::endl;
@@ -45,6 +51,11 @@ int main(int argc, char **argv) {
 
   double sum_time = 0;
   int image_num = 0;
+  if (max_frames > 0 && static_cast<size_t>(max_frames) < dataset_length) {
+    std::cout << "FAST-ITER: limiting to " << max_frames
+              << " of " << dataset_length << " frames\n";
+    dataset_length = static_cast<size_t>(max_frames);
+  }
   for(size_t i = 0; i < dataset_length && rclcpp::ok(); ++i){
     std::cout << "i ====== " << i << std::endl;
     cv::Mat image_left, image_right;
@@ -78,7 +89,11 @@ int main(int argc, char **argv) {
 
   std::string trajectory_path = ConcatenateFolderAndFileName(configs.saving_dir, "trajectory_v0.txt");
   map_builder.SaveTrajectory(trajectory_path);
-  map_builder.SaveMap(configs.saving_dir);
+  if (!skip_save_map) {
+    map_builder.SaveMap(configs.saving_dir);
+  } else {
+    std::cout << "skip_save_map=1 — not writing AirSLAM_mapv0.bin\n";
+  }
   rclcpp::shutdown();
 
   return 0;
