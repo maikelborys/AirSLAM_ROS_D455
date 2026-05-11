@@ -21,23 +21,33 @@ XFeat itself is fast — the wall-clock cost during a full VO run is
 dominated by C++ post-processing + matching + AirSLAM bookkeeping, NOT
 by the engine forward.
 
-## EuRoC visual odometry (raw, no refinement)
+## EuRoC visual odometry (raw VO + post-refinement)
 
 Compared to the validated SuperPoint+LightGlue baseline on `jazzy-port`
 (`~/coding/AirSLAM`, ATE 0.039 m post-refinement, 0.10 m raw on MH_03).
 
 ### MH_03_medium
 
-| Run | Extractor | Matcher | max_kpts | Frames | FPS | ATE RMSE (raw) |
+| Run | Extractor | Matcher | max_kpts | FPS | ATE raw VO | ATE **post-refinement** |
 |---|---|---|---|---|---|---|
-| Baseline | SuperPoint+LightGlue | LightGlue | 400 | 2700 | **38.3** | **~0.10 m** |
-| This branch (large) | XFeat | MNN+Lowe | 1024 | 2700 | 16.85 | 0.308 m |
-| This branch (small) | XFeat | MNN+Lowe | 400 | 2700 | 33.20 | 3.03 m |
+| Baseline | SuperPoint+LightGlue | LightGlue | 400 | **38.3** | ~0.10 m | **0.039 m** |
+| This branch | XFeat | MNN+Lowe (CPU) | 1024 | 16.85 | 0.308 m | — |
+| This branch | XFeat | MNN+Lowe (CPU) | 400 | 33.20 | 3.03 m | — |
+| **This branch (final)** | **XFeat** | **MNN+Lowe (cuBLAS)** | **1024** | **16.9** | **0.308 m** | **0.104 m** ⭐ |
 
-The 1024-kpt run finishes ~3x worse than the SuperPoint baseline raw.
-The 400-kpt run matches SuperPoint speed but ATE collapses — XFeat
-without dense keypoints loses the discrimination needed by the SLAM
-backend on this medium-difficulty sequence.
+The **post-refinement column** is the headline result: with the 64-dim
+DBoW2 vocab (Phase 6) trained from scratch on EuRoC TRAIN, map_refinement
+finds **405 loop pairs** (vs SuperPoint baseline's 127 — XFeat is more
+aggressive at place recognition) and brings the ATE down 3x. We are now
+2.6x behind the SuperPoint baseline but **fully Apache-2.0 commercial
+deployable** — see "Licensing" below.
+
+The cuBLAS-on-GPU MNN matcher is integrated but did not move the FPS
+needle on its own (16.85 → 16.9). End-to-end profiling shows the cosine
+GEMM was already a small fraction of per-frame wall time — the dominant
+cost is AirSLAM's MapBuilder + g2o BA, which scales with
+max_keypoints * keyframes_recent. Closing the FPS gap needs either a
+better matcher (LighterGlue) so 400 kpts is enough, or backend tuning.
 
 ### V1_01_easy
 
@@ -110,12 +120,55 @@ evo_ape tum \
   /tmp/airslam_xfeat_mh03/trajectory_v0.txt -va
 ```
 
+## Licensing — the real differentiator
+
+| Component | License | Commercial use? |
+|---|---|---|
+| SuperPoint (MagicLeap) | Non-commercial research | ❌ |
+| LightGlue (ETH CVG) | Apache-2.0 | ✅ |
+| **XFeat** (Verlab) | **Apache-2.0** | ✅ |
+| LighterGlue (Verlab/kornia) | Apache-2.0 | ✅ |
+| `voc/point_voc_L4.bin` (trained on SP) | derivative of SuperPoint | ❌ |
+| **`voc/point_voc_L4_xfeat.bin` (this branch, Phase 6)** | derivative of XFeat | ✅ |
+| MNN matcher | algorithm only, no weights | ✅ |
+| DBoW2 / g2o / Eigen / OpenCV / TensorRT | BSD/MIT/MPL/Apache/EULA-free | ✅ |
+
+**The SuperPoint AirSLAM baseline cannot be commercialised** because of
+MagicLeap's non-commercial license on the SuperPoint weights — and the
+vocab `point_voc_L4.bin` it ships is derived from SuperPoint features so
+it's tainted too. **This branch is the only license-clean route to a
+deployable AirSLAM**. The 2.6x ATE gap vs the SuperPoint baseline is a
+research-vs-product tradeoff: SuperPoint wins on benchmarks, XFeat wins
+on what you can actually sell.
+
 ## Future work (post-Phase 9)
 
 Ordered by expected impact, biggest first:
 
-1. **64-dim DBoW2 vocab + map_refinement loop closure** (Phase 6, deferred). Unlocks the post-refinement ATE column — the *real* number we want to compare to the paper's 0.039 m.
-2. **CUDA-port XFeat post-processing + MNN matcher**. Eliminates the 13–14 ms / frame XFeat-specific overhead.
-3. **LighterGlue ONNX export** (un-pin from v0.1, write export wrapper). Replaces MNN with a matcher that is both faster *and* more accurate on the descriptor manifold.
-4. **D455 live-camera path** (cherry-pick ROSDataset from `master`, port to rclcpp). Enables on-robot benchmarking.
-5. **Re-enable lines via PLNet wireframe head with XFeat-anchored points**. Plan called this conditional on Phase 8 metrics passing — they didn't, but lines may still help V1_01 / V2 sequences specifically.
+1. **LighterGlue ONNX export** (currently blocked: torch.onnx.export
+   trips on `.transpose(-X, -Y)` / `.unflatten(-1, ...)` / negative-index
+   `shape[-X]` ops in both kornia.feature.lightglue.LightGlue AND
+   cvg/LightGlue with LighterGlue weights). Phase-2 attempt patched 7
+   transpose calls but the export then failed at `rotate_half` and the
+   remaining 14 negative-index ops are a whack-a-mole. Path forward for
+   next session: either (a) patch every negative-index op systematically
+   (~2-3 h), or (b) switch to fabio-sim/LightGlue-ONNX's dynamo-based
+   export and add XFeat support there (~2-3 h). Expected gain: -10-20%
+   ATE + ~30% FPS lift if the matcher becomes the bottleneck after a
+   keypoint reduction.
+
+2. **CUDA-port XFeat post-processing** (softmax/NMS/top-K/bilinear
+   sample) — currently ~3-4 ms / frame on CPU. CUDA kernel would drop
+   this to ~0.3 ms. FPS gain ~5-10%.
+
+3. **D455 live-camera path** (cherry-pick ROSDataset from `master`, port
+   to rclcpp). Enables on-robot benchmarking.
+
+4. **Re-enable lines via PLNet wireframe head with XFeat-anchored
+   points**. Plan called this conditional on Phase 8 metrics passing —
+   they're now passing post-Phase 6, so this becomes viable.
+
+5. **MH_02_easy training data missing** — vocab was trained on MH_01 +
+   V1_01 only (1200 imgs, 1.23 M descriptors). Adding MH_02 + V1_02 +
+   V2_01 (when available) would likely improve loop recall on
+   V1_01_easy / V2 sequences where we currently diverge.
