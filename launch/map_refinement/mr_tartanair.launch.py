@@ -10,7 +10,7 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    pkg_share = get_package_share_directory('air_slam')
+    pkg_share = get_package_share_directory('air_slam_xfeat')
 
     config_path = LaunchConfiguration('config_path')
     map_root = LaunchConfiguration('map_root')
@@ -29,7 +29,7 @@ def generate_launch_description():
         DeclareLaunchArgument('breakpoint', default_value='0'),
         DeclareLaunchArgument('visualization', default_value='true'),
         Node(
-            package='air_slam', executable='map_refinement',
+            package='air_slam_xfeat', executable='map_refinement',
             name='map_refinement', output='screen',
             parameters=[{'config_path': config_path, 'map_root': map_root,
                          'model_dir': model_dir, 'voc_path': voc_path,

@@ -99,23 +99,43 @@ bool FeatureDetector::Detect(cv::Mat& image, Eigen::Matrix<float, 259, Eigen::Dy
   return good_infer;
 }
 
-bool FeatureDetector::Detect(cv::Mat& image, Eigen::Matrix<float, 259, Eigen::Dynamic> &features, 
+bool FeatureDetector::Detect(cv::Mat& image, Eigen::Matrix<float, 259, Eigen::Dynamic> &features,
     std::vector<Eigen::Vector4d>& lines){
+  // XFeat / SuperPoint are points-only — lines stay empty in those modes.
+  if (_plnet_config.feature_extractor == kFeatureExtractorXFeat) {
+    lines.clear();
+    return DetectXFeat(image, features);
+  }
+  if (_plnet_config.feature_extractor == kFeatureExtractorSuperPoint) {
+    lines.clear();
+    return _superpoint->infer(image, features);
+  }
   Eigen::Matrix<float, 259, Eigen::Dynamic> junctions;
   bool good_infer = _plnet->infer(image, features, lines, junctions);
   if(!good_infer){
     std::cout << "Failed when extracting point features !" << std::endl;
   }
-  return good_infer; 
+  return good_infer;
 }
 
-bool FeatureDetector::Detect(cv::Mat& image, Eigen::Matrix<float, 259, Eigen::Dynamic> &features, 
+bool FeatureDetector::Detect(cv::Mat& image, Eigen::Matrix<float, 259, Eigen::Dynamic> &features,
     std::vector<Eigen::Vector4d>& lines, Eigen::Matrix<float, 259, Eigen::Dynamic>& junctions){
+  // XFeat / SuperPoint paths: points-only. Lines + junctions stay empty.
+  if (_plnet_config.feature_extractor == kFeatureExtractorXFeat) {
+    lines.clear();
+    junctions.resize(259, 0);
+    return DetectXFeat(image, features);
+  }
+  if (_plnet_config.feature_extractor == kFeatureExtractorSuperPoint) {
+    lines.clear();
+    junctions.resize(259, 0);
+    return _superpoint->infer(image, features);
+  }
   bool good_infer = _plnet->infer(image, features, lines, junctions, true);
   if(!good_infer){
     std::cout << "Failed when extracting point features !" << std::endl;
   }
-  return good_infer; 
+  return good_infer;
 }
 
 bool FeatureDetector::Detect(cv::Mat& image_left, cv::Mat& image_right, 

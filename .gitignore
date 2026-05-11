@@ -13,5 +13,6 @@ output/*_trt10.onnx
 model/*
 weights/*
 debug/*
+debug.txt
 *.so
 */__pycache__/*

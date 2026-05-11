@@ -10,7 +10,7 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    pkg_share = get_package_share_directory('air_slam')
+    pkg_share = get_package_share_directory('air_slam_xfeat')
 
     config_path = LaunchConfiguration('config_path')
     dataroot = LaunchConfiguration('dataroot')
@@ -29,7 +29,7 @@ def generate_launch_description():
         DeclareLaunchArgument('saving_dir', default_value='/tmp/airslam'),
         DeclareLaunchArgument('visualization', default_value='true'),
         Node(
-            package='air_slam', executable='visual_odometry',
+            package='air_slam_xfeat', executable='visual_odometry',
             name='visual_odometry', output='screen',
             parameters=[{'config_path': config_path, 'dataroot': dataroot,
                          'camera_config_path': camera_config_path,

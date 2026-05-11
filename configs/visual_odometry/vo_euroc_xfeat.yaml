@@ -1,0 +1,73 @@
+# XFeat visual odometry — EuRoC sequences.
+#
+# Replaces SuperPoint (256-dim) + LightGlue with XFeat (64-dim) + MNN.
+# Read-configs PLNetConfig.feature_extractor:
+#   0 = PLNet (points + lines)
+#   1 = SuperPoint (points only)   <- vo_euroc.yaml uses this
+#   2 = XFeat (points only)        <- THIS FILE
+#
+# Lines are intentionally disabled in this branch; PLNet wireframe head
+# stays out of scope until Phase 8 metrics (Phase 9 promotion gate) pass.
+plnet:
+  feature_extractor: 2          # XFeat
+  use_superpoint: 0             # legacy alias; kept for compat
+  max_keypoints: 1024           # XFeat is cheap; we can afford more kpts
+  keypoint_threshold: 0.05      # xfeat_slam_ws default; SuperPoint used 0.004
+  remove_borders: 4
+  line_threshold: 0.75          # unused (XFeat = points only)
+  line_length_threshold: 50
+  # XFeat-specific (read by XFeatConfig via PLNetConfig):
+  xfeat_input_height: 480       # EuRoC native — engine is static-shape
+  xfeat_input_width: 752
+  xfeat_nms_kernel_size: 5      # cv::dilate window, matches xfeat_slam_ws
+
+point_matcher:
+  matcher: 2                    # 0 = lightglue, 1 = superglue, 2 = MNN
+  image_width: 752
+  image_height: 480
+  descriptor_dim: 64            # XFeat native
+  min_cosine_similarity: 0.70   # below this, drop
+  lowe_ratio: 0.95              # accept iff best * lowe > second
+  require_mutual_nn: 1
+  onnx_file: ""                 # MNN has no engine
+  engine_file: ""
+
+# These knobs are inherited from vo_euroc.yaml; the SLAM math is unchanged
+# between SuperPoint and XFeat (Phase 0 hard rule).
+keyframe:
+  min_init_stereo_feature: 90
+  lost_num_match: 10
+  min_num_match: 30
+  max_num_match: 80
+  tracking_point_rate: 0.65
+  tracking_parallax_rate: 0.1
+
+optimization:
+  tracking:
+    mono_point: 50
+    stereo_point: 75
+    mono_line: 50
+    stereo_line: 75
+    rate: 0.5
+  backend:
+    mono_point: 50
+    stereo_point: 75
+    mono_line: 50
+    stereo_line: 75
+    rate: 0.5
+
+ros_publisher:
+  feature: 1
+  feature_topic: "/AirSLAM/feature"
+  frame_pose: 1
+  frame_pose_topic: "/AirSLAM/frame_pose"
+  frame_odometry_topic: "/AirSLAM/LatestOdometry"
+  keyframe: 1
+  keyframe_topic: "/AirSLAM/keyframe"
+  path_topic: "/AirSLAM/odometry"
+  map: 1
+  map_topic: "/AirSLAM/map"
+  mapline: 0                    # no lines published in XFeat mode
+  mapline_topic: "/AirSLAM/mapline"
+  reloc: 0
+  reloc_topic: "/AirSLAM/reloc"

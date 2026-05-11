@@ -1,4 +1,11 @@
-"""Visual odometry on OIVIO sequences."""
+"""Visual odometry on EuRoC stereo+IMU sequences — XFeat 64-dim + MNN matcher.
+
+This is the sibling of vo_euroc.launch.py with one difference: it points
+at configs/visual_odometry/vo_euroc_xfeat.yaml, which selects XFeat as the
+feature extractor and MNN as the matcher. Everything else (camera intrinsics,
+RViz config, ROS publishers) is shared with the SuperPoint launch so the
+two pipelines can be A/B compared on the same sequence.
+"""
 import os
 
 from ament_index_python.packages import get_package_share_directory
@@ -21,12 +28,12 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument('config_path',
-            default_value=os.path.join(pkg_share, 'configs', 'visual_odometry', 'vo_oivio.yaml')),
-        DeclareLaunchArgument('dataroot', default_value='/media/data/datasets/oivio/selected_seq/MN_015_GV_01'),
+            default_value=os.path.join(pkg_share, 'configs', 'visual_odometry', 'vo_euroc_xfeat.yaml')),
+        DeclareLaunchArgument('dataroot', default_value='/home/maikel/datasets/euroc/MH_03_medium'),
         DeclareLaunchArgument('camera_config_path',
-            default_value=os.path.join(pkg_share, 'configs', 'camera', 'oivio.yaml')),
+            default_value=os.path.join(pkg_share, 'configs', 'camera', 'euroc.yaml')),
         DeclareLaunchArgument('model_dir', default_value=os.path.join(pkg_share, 'output')),
-        DeclareLaunchArgument('saving_dir', default_value='/tmp/airslam'),
+        DeclareLaunchArgument('saving_dir', default_value='/tmp/airslam_xfeat'),
         DeclareLaunchArgument('visualization', default_value='true'),
         Node(
             package='air_slam_xfeat', executable='visual_odometry',
