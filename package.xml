@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>air_slam</name>
+  <name>air_slam_xfeat</name>
   <version>0.0.0</version>
-  <description>AirSLAM: Efficient and Illumination-Robust Point-Line Visual SLAM (ROS 2 Jazzy port)</description>
+  <description>AirSLAM with XFeat: SuperPoint replaced by Verlab XFeat (ROS 2 Jazzy + TRT 10 port)</description>
   <maintainer email="kuan.xu@ntu.edu.sg">xukuan</maintainer>
   <maintainer email="maikelborys@gmail.com">Maikel</maintainer>
   <license>Apache-2.0</license>

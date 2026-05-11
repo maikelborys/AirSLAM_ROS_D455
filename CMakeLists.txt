@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(air_slam LANGUAGES CXX CUDA)
+project(air_slam_xfeat LANGUAGES CXX CUDA)
 
 # ============================================================================
 # AirSLAM ROS 2 Jazzy port — work in progress
@@ -169,7 +169,7 @@ install(TARGETS
   air_slam_lib
   tensorrtbuffer
   DBoW2
-  EXPORT air_slam_export
+  EXPORT air_slam_xfeat_export
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME}
