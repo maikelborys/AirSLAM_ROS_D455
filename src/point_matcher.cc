@@ -102,8 +102,14 @@ PointMatcher::PointMatcher(const PointMatcherConfig& config) : _config(config){
       std::cout << "MNN matcher needs descriptor_dim > 0" << std::endl;
       exit(0);
     }
+  }else if(_config.matcher == kPointMatcherLighterGlue){
+    _lighterglue = std::make_shared<LighterGlue>(_config);
+    if (!_lighterglue->build()) {
+      std::cout << "Error in LighterGlue building" << std::endl;
+      exit(0);
+    }
   }else{
-    std::cout << "Plese select the point matcher! (0 for lightglue, 1 for superglue, 2 for MNN)" << std::endl;
+    std::cout << "Plese select the point matcher! (0=lightglue, 1=superglue, 2=MNN, 3=LighterGlue)" << std::endl;
     exit(0);
   }
 }
@@ -129,7 +135,34 @@ int PointMatcher::MatchingPoints(const Eigen::Matrix<float, 259, Eigen::Dynamic>
   matches.clear();
   std::vector<cv::Point> points0, points1;
 
-  if(_config.matcher == kPointMatcherMNN){
+  if(_config.matcher == kPointMatcherLighterGlue){
+    // -------------------------------------------------------------------
+    // LighterGlue (XFeat-native attention-based matcher) via TorchScript.
+    // The trace was exported with image_size baked as a buffer, so we feed
+    // raw pixel coords (no normalisation). Descriptors live in rows 3..66
+    // of the 259-row feature matrix.
+    // -------------------------------------------------------------------
+    const int N0 = features0.cols();
+    const int N1 = features1.cols();
+    Eigen::Matrix<float, 2,  Eigen::Dynamic> kp0 = features0.block(1, 0, 2, N0);
+    Eigen::Matrix<float, 2,  Eigen::Dynamic> kp1 = features1.block(1, 0, 2, N1);
+    Eigen::Matrix<float, 64, Eigen::Dynamic> d0  = features0.block(3, 0, 64, N0);
+    Eigen::Matrix<float, 64, Eigen::Dynamic> d1  = features1.block(3, 0, 64, N1);
+
+    Eigen::Matrix<int, Eigen::Dynamic, 2> mi;
+    Eigen::Matrix<float, Eigen::Dynamic, 1> ms;
+    if (!_lighterglue->infer(kp0, d0, kp1, d1, mi, ms)) {
+      std::cout << "LighterGlue infer failed, returning 0 matches\n";
+      return 0;
+    }
+    for (int k = 0; k < mi.rows(); ++k) {
+      matches.emplace_back(mi(k, 0), mi(k, 1), 1.0f - ms(k));
+      if (outlier_rejection) {
+        points0.emplace_back(features0(1, mi(k, 0)), features0(2, mi(k, 0)));
+        points1.emplace_back(features1(1, mi(k, 1)), features1(2, mi(k, 1)));
+      }
+    }
+  } else if(_config.matcher == kPointMatcherMNN){
     // -------------------------------------------------------------------
     // MNN + Lowe ratio on XFeat 64-dim descriptors. Descriptors live in
     // rows 3..(3+D-1) of the feature matrices; XFeat already L2-normalised

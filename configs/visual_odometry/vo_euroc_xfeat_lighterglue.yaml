@@ -1,0 +1,67 @@
+# XFeat + LighterGlue (TorchScript) visual odometry — EuRoC.
+# Same SLAM tunings as vo_euroc_xfeat.yaml, only the matcher changes.
+#
+# LighterGlue runs via libtorch's torch::jit::load. The traced .pt file is
+# produced by scripts/export_lighterglue_torchscript.py and stored at
+# <model_dir>/lighterglue.pt. Static-shape trace at N=1024, image_size
+# = (752, 480). To support a different size or kpt count, re-export.
+plnet:
+  feature_extractor: 2          # XFeat
+  use_superpoint: 0
+  max_keypoints: 1024           # MUST match the lighterglue.pt trace --num-kpts
+  keypoint_threshold: 0.05
+  remove_borders: 4
+  line_threshold: 0.75
+  line_length_threshold: 50
+  xfeat_input_height: 480
+  xfeat_input_width: 752
+  xfeat_nms_kernel_size: 5
+
+point_matcher:
+  matcher: 3                    # 0=lightglue, 1=superglue, 2=MNN, 3=LighterGlue
+  image_width: 752
+  image_height: 480
+  descriptor_dim: 64
+  min_cosine_similarity: 0.0    # unused for LighterGlue (it has its own gate)
+  lowe_ratio: 0.0
+  require_mutual_nn: 0
+  onnx_file: ""                 # no ONNX path
+  engine_file: "lighterglue.pt" # resolved against model_dir
+
+keyframe:
+  min_init_stereo_feature: 90
+  lost_num_match: 10
+  min_num_match: 30
+  max_num_match: 80
+  tracking_point_rate: 0.65
+  tracking_parallax_rate: 0.1
+
+optimization:
+  tracking:
+    mono_point: 50
+    stereo_point: 75
+    mono_line: 50
+    stereo_line: 75
+    rate: 0.5
+  backend:
+    mono_point: 50
+    stereo_point: 75
+    mono_line: 50
+    stereo_line: 75
+    rate: 0.5
+
+ros_publisher:
+  feature: 1
+  feature_topic: "/AirSLAM/feature"
+  frame_pose: 1
+  frame_pose_topic: "/AirSLAM/frame_pose"
+  frame_odometry_topic: "/AirSLAM/LatestOdometry"
+  keyframe: 1
+  keyframe_topic: "/AirSLAM/keyframe"
+  path_topic: "/AirSLAM/odometry"
+  map: 1
+  map_topic: "/AirSLAM/map"
+  mapline: 0
+  mapline_topic: "/AirSLAM/mapline"
+  reloc: 0
+  reloc_topic: "/AirSLAM/reloc"

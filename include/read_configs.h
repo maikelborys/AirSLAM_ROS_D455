@@ -166,10 +166,13 @@ struct XFeatConfig {
 //   0 = LightGlue (SuperPoint, 256-dim)
 //   1 = SuperGlue (SuperPoint, 256-dim)
 //   2 = MNN+Lowe (XFeat, 64-dim) — pure CPU/Eigen, no engine.
+//   3 = LighterGlue (XFeat, 64-dim, kornia LightGlue + XFeat weights via
+//                    TorchScript .pt loaded by libtorch).
 enum PointMatcherKind : int {
-  kPointMatcherLightGlue = 0,
-  kPointMatcherSuperGlue = 1,
-  kPointMatcherMNN       = 2,
+  kPointMatcherLightGlue   = 0,
+  kPointMatcherSuperGlue   = 1,
+  kPointMatcherMNN         = 2,
+  kPointMatcherLighterGlue = 3,
 };
 
 struct PointMatcherConfig {

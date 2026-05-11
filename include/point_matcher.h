@@ -3,6 +3,7 @@
 
 #include "super_glue.h"
 #include "light_glue.h"
+#include "lighter_glue.h"
 #include "read_configs.h"
 
 // Forward-declare cuBLAS handle so the header stays C++ (no cublas_v2.h leak).
@@ -25,6 +26,7 @@ private:
   PointMatcherConfig _config;
   SuperPointLightGluePtr _lightglue;
   SuperGluePtr _superglue;
+  LighterGluePtr _lighterglue;
 
   // GPU resources for the MNN cosine GEMM. Allocated lazily on first MNN call
   // and reused; sized to fit max_keypoints^2 (1024^2 * 4B = 4 MiB for S).

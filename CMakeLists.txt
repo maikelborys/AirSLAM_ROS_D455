@@ -45,6 +45,13 @@ find_package(Boost REQUIRED COMPONENTS serialization)
 find_package(G2O REQUIRED)
 find_package(Gflags REQUIRED)
 find_package(Glog REQUIRED)
+# libtorch for LighterGlue (TorchScript runtime). Optional: define
+# AIR_SLAM_XFEAT_USE_LIGHTERGLUE=OFF to skip and shrink the link footprint.
+option(AIR_SLAM_XFEAT_USE_LIGHTERGLUE "Build the LighterGlue libtorch matcher" ON)
+if(AIR_SLAM_XFEAT_USE_LIGHTERGLUE)
+  find_package(Torch REQUIRED HINTS /home/maikel/libtorch)
+  add_compile_definitions(AIR_SLAM_XFEAT_USE_LIGHTERGLUE)
+endif()
 
 # ----------------------------------------------------------------------------
 # 3rdparty (kept as-is from upstream — both have no ROS coupling)
@@ -63,6 +70,7 @@ add_library(air_slam_core_lib SHARED
   src/light_glue.cpp
   src/plnet.cpp
   src/xfeat.cpp
+  src/lighter_glue.cc
   src/feature_detector.cc
   src/point_matcher.cc
   # Geometry / IO / utilities
@@ -116,6 +124,10 @@ target_link_libraries(air_slam_core_lib
     ${GFLAGS_LIBRARIES}
     ${GLOG_LIBRARIES}
 )
+if(AIR_SLAM_XFEAT_USE_LIGHTERGLUE)
+  target_link_libraries(air_slam_core_lib PUBLIC ${TORCH_LIBRARIES})
+  target_include_directories(air_slam_core_lib PUBLIC ${TORCH_INCLUDE_DIRS})
+endif()
 
 # ----------------------------------------------------------------------------
 # air_slam_lib — ROS-aware sources (RosPublisher, eventually MapBuilder etc.)
