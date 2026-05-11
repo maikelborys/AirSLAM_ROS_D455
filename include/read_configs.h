@@ -162,24 +162,45 @@ struct XFeatConfig {
   std::string engine_file;
 };
 
+// Point matcher selector:
+//   0 = LightGlue (SuperPoint, 256-dim)
+//   1 = SuperGlue (SuperPoint, 256-dim)
+//   2 = MNN+Lowe (XFeat, 64-dim) — pure CPU/Eigen, no engine.
+enum PointMatcherKind : int {
+  kPointMatcherLightGlue = 0,
+  kPointMatcherSuperGlue = 1,
+  kPointMatcherMNN       = 2,
+};
+
 struct PointMatcherConfig {
   PointMatcherConfig() {}
   void Load(const YAML::Node& point_matcher_node){
     matcher = point_matcher_node["matcher"].as<int>();
     image_width = point_matcher_node["image_width"].as<int>();
     image_height = point_matcher_node["image_height"].as<int>();
-    onnx_file = point_matcher_node["onnx_file"].as<std::string>();
-    engine_file = point_matcher_node["engine_file"].as<std::string>();
+    onnx_file = point_matcher_node["onnx_file"].as<std::string>("");
+    engine_file = point_matcher_node["engine_file"].as<std::string>("");
+    // MNN-specific knobs (only consulted for matcher == kPointMatcherMNN).
+    descriptor_dim         = point_matcher_node["descriptor_dim"].as<int>(64);
+    min_cosine_similarity  = point_matcher_node["min_cosine_similarity"].as<float>(0.70f);
+    lowe_ratio             = point_matcher_node["lowe_ratio"].as<float>(0.95f);
+    require_mutual_nn      = point_matcher_node["require_mutual_nn"].as<int>(1);
   }
 
   int matcher;
   int image_width;
   int image_height;
-  int dla_core;
+  int dla_core{-1};
   std::vector<std::string> input_tensor_names;
   std::vector<std::string> output_tensor_names;
   std::string onnx_file;
   std::string engine_file;
+
+  // Phase 5 MNN knobs.
+  int   descriptor_dim;
+  float min_cosine_similarity;
+  float lowe_ratio;
+  int   require_mutual_nn;
 };
 
 struct LineDetectorConfig{
