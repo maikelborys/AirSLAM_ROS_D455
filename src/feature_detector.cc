@@ -5,48 +5,98 @@
 #include "utils.h"
 
 FeatureDetector::FeatureDetector(const PLNetConfig& plnet_config) : _plnet_config(plnet_config){
-  if(_plnet_config.use_superpoint){
-    SuperPointConfig superpoint_config;
-    superpoint_config.max_keypoints = plnet_config.max_keypoints;
-    superpoint_config.keypoint_threshold = plnet_config.keypoint_threshold;
-    superpoint_config.remove_borders = plnet_config.remove_borders;
-    superpoint_config.dla_core = -1;
-
-    superpoint_config.input_tensor_names.push_back("input");
-    superpoint_config.output_tensor_names.push_back("scores");
-    superpoint_config.output_tensor_names.push_back("descriptors");
-
-    superpoint_config.onnx_file = plnet_config.superpoint_onnx;
-    superpoint_config.engine_file = plnet_config.superpoint_engine;
-
-    _superpoint = std::shared_ptr<SuperPoint>(new SuperPoint(superpoint_config));
-    if (!_superpoint->build()){
-      std::cout << "Error in SuperPoint building" << std::endl;
-      exit(0);
+  // Dispatch on feature_extractor — only the selected backbone is built so a
+  // missing plnet_s0.engine cannot break a pure XFeat configuration.
+  switch (_plnet_config.feature_extractor) {
+    case kFeatureExtractorSuperPoint: {
+      SuperPointConfig superpoint_config;
+      superpoint_config.max_keypoints = plnet_config.max_keypoints;
+      superpoint_config.keypoint_threshold = plnet_config.keypoint_threshold;
+      superpoint_config.remove_borders = plnet_config.remove_borders;
+      superpoint_config.dla_core = -1;
+      superpoint_config.input_tensor_names.push_back("input");
+      superpoint_config.output_tensor_names.push_back("scores");
+      superpoint_config.output_tensor_names.push_back("descriptors");
+      superpoint_config.onnx_file = plnet_config.superpoint_onnx;
+      superpoint_config.engine_file = plnet_config.superpoint_engine;
+      _superpoint = std::shared_ptr<SuperPoint>(new SuperPoint(superpoint_config));
+      if (!_superpoint->build()) {
+        std::cout << "Error in SuperPoint building" << std::endl;
+        exit(0);
+      }
+      break;
+    }
+    case kFeatureExtractorXFeat: {
+      XFeatConfig xfeat_config;
+      xfeat_config.max_keypoints = plnet_config.max_keypoints;
+      xfeat_config.keypoint_threshold = plnet_config.keypoint_threshold;
+      xfeat_config.remove_borders = plnet_config.remove_borders;
+      xfeat_config.nms_kernel_size = plnet_config.xfeat_nms_kernel_size;
+      xfeat_config.input_height = plnet_config.xfeat_input_height;
+      xfeat_config.input_width  = plnet_config.xfeat_input_width;
+      xfeat_config.dla_core = -1;
+      xfeat_config.input_tensor_names  = {"image"};
+      xfeat_config.output_tensor_names = {"feats", "keypts", "rel"};
+      xfeat_config.onnx_file   = plnet_config.xfeat_onnx;
+      xfeat_config.engine_file = plnet_config.xfeat_engine;
+      _xfeat = std::shared_ptr<XFeat>(new XFeat(xfeat_config));
+      if (!_xfeat->build()) {
+        std::cout << "Error in XFeat building" << std::endl;
+        exit(0);
+      }
+      break;
+    }
+    case kFeatureExtractorPLNet:
+    default: {
+      _plnet = std::shared_ptr<PLNet>(new PLNet(_plnet_config));
+      if (!_plnet->build()) {
+        std::cout << "Error in FeatureDetector building" << std::endl;
+        // exit(0);
+      }
+      break;
     }
   }
+}
 
-  _plnet = std::shared_ptr<PLNet>(new PLNet(_plnet_config));
-  if (!_plnet->build()){
-    std::cout << "Error in FeatureDetector building" << std::endl;
-    // exit(0);
+bool FeatureDetector::DetectXFeat(
+    cv::Mat& image,
+    Eigen::Matrix<float, 259, Eigen::Dynamic>& features) {
+  // XFeat produces 67-row natively (3 + 64). Copy into the first 67 rows
+  // of the 259-row matrix and zero-fill the remaining 192. Downstream code
+  // that consumes 256-dim descriptors (LightGlue, SuperPoint vocab) will be
+  // wrong on this padded data — Phase 5/6 swap them for XFeat-native ones.
+  Eigen::Matrix<float, kXFeatFeatureRows, Eigen::Dynamic> xfeat_features;
+  if (!_xfeat->infer(image, xfeat_features)) {
+    std::cout << "Failed when running XFeat inference !" << std::endl;
+    return false;
   }
+  const int N = xfeat_features.cols();
+  features.resize(259, N);
+  features.setZero();
+  features.topRows(kXFeatFeatureRows) = xfeat_features;
+  return true;
 }
 
 bool FeatureDetector::Detect(cv::Mat& image, Eigen::Matrix<float, 259, Eigen::Dynamic> &features){
   bool good_infer = false;
-  if(_plnet_config.use_superpoint){
-    good_infer = _superpoint->infer(image, features);
-  }else{
-    std::vector<Eigen::Vector4d> lines;
-    good_infer = Detect(image, features, lines);
+  switch (_plnet_config.feature_extractor) {
+    case kFeatureExtractorSuperPoint:
+      good_infer = _superpoint->infer(image, features);
+      break;
+    case kFeatureExtractorXFeat:
+      good_infer = DetectXFeat(image, features);
+      break;
+    case kFeatureExtractorPLNet:
+    default: {
+      std::vector<Eigen::Vector4d> lines;
+      good_infer = Detect(image, features, lines);
+      break;
+    }
   }
-
-
   if(!good_infer){
     std::cout << "Failed when extracting point features !" << std::endl;
   }
-  return good_infer; 
+  return good_infer;
 }
 
 bool FeatureDetector::Detect(cv::Mat& image, Eigen::Matrix<float, 259, Eigen::Dynamic> &features, 

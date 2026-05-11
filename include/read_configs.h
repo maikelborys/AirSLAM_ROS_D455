@@ -6,6 +6,16 @@
 
 #include "utils.h"
 
+// Feature extractor selection. `use_superpoint` is the legacy bool (kept
+// for back-compat with existing YAMLs). New configs should set
+// `feature_extractor` directly: 0 = PLNet (points + lines), 1 = SuperPoint
+// (points only, fastest path), 2 = XFeat (points only, 64-dim descriptors).
+enum FeatureExtractor : int {
+  kFeatureExtractorPLNet     = 0,
+  kFeatureExtractorSuperPoint = 1,
+  kFeatureExtractorXFeat      = 2,
+};
+
 struct PLNetConfig{
   std::string superpoint_onnx;
   std::string superpoint_engine;
@@ -15,6 +25,12 @@ struct PLNetConfig{
   std::string plnet_s1_onnx;
   std::string plnet_s1_engine;
 
+  std::string xfeat_onnx;
+  std::string xfeat_engine;
+
+  // 0=PLNet, 1=SuperPoint, 2=XFeat. Mirrored to use_superpoint for any
+  // downstream code still keyed on the legacy bool.
+  int feature_extractor;
   int use_superpoint;
 
   int max_keypoints;
@@ -24,24 +40,50 @@ struct PLNetConfig{
   float line_threshold;
   float line_length_threshold;
 
-  PLNetConfig() {}
+  // XFeat-specific (only consulted when feature_extractor == kFeatureExtractorXFeat).
+  int xfeat_input_height;
+  int xfeat_input_width;
+  int xfeat_nms_kernel_size;
+
+  PLNetConfig() : feature_extractor(kFeatureExtractorPLNet), use_superpoint(0),
+                  xfeat_input_height(480), xfeat_input_width(752),
+                  xfeat_nms_kernel_size(5) {}
+
   void Load(const YAML::Node& plnet_node){
-    use_superpoint = plnet_node["use_superpoint"].as<int>();
+    // Accept either feature_extractor (preferred) or use_superpoint
+    // (legacy). When neither is present, default to PLNet.
+    if (plnet_node["feature_extractor"]) {
+      feature_extractor = plnet_node["feature_extractor"].as<int>();
+    } else if (plnet_node["use_superpoint"]) {
+      feature_extractor = plnet_node["use_superpoint"].as<int>()
+          ? kFeatureExtractorSuperPoint : kFeatureExtractorPLNet;
+    } else {
+      feature_extractor = kFeatureExtractorPLNet;
+    }
+    use_superpoint =
+        (feature_extractor == kFeatureExtractorSuperPoint) ? 1 : 0;
 
     max_keypoints = plnet_node["max_keypoints"].as<int>();
     keypoint_threshold = plnet_node["keypoint_threshold"].as<float>();
     remove_borders = plnet_node["remove_borders"].as<int>();
 
-    line_threshold = plnet_node["line_threshold"].as<float>();
-    line_length_threshold = plnet_node["line_length_threshold"].as<float>();
+    line_threshold = plnet_node["line_threshold"].as<float>(0.5f);
+    line_length_threshold = plnet_node["line_length_threshold"].as<float>(50.0f);
+
+    xfeat_input_height    = plnet_node["xfeat_input_height"].as<int>(480);
+    xfeat_input_width     = plnet_node["xfeat_input_width"].as<int>(752);
+    xfeat_nms_kernel_size = plnet_node["xfeat_nms_kernel_size"].as<int>(5);
   }
 
   void SetModelPath(std::string model_dir){
-    if(use_superpoint){
-      superpoint_onnx = ConcatenateFolderAndFileName(model_dir, "superpoint_v1_sim_int32.onnx");
+    if (feature_extractor == kFeatureExtractorSuperPoint) {
+      superpoint_onnx   = ConcatenateFolderAndFileName(model_dir, "superpoint_v1_sim_int32.onnx");
       superpoint_engine = ConcatenateFolderAndFileName(model_dir, "superpoint_v1_sim_int32.engine");
     }
-
+    if (feature_extractor == kFeatureExtractorXFeat) {
+      xfeat_onnx   = ConcatenateFolderAndFileName(model_dir, "xfeat_trt10.onnx");
+      xfeat_engine = ConcatenateFolderAndFileName(model_dir, "xfeat.engine");
+    }
     plnet_s0_onnx = ConcatenateFolderAndFileName(model_dir, "plnet_s0.onnx");
     plnet_s0_engine = ConcatenateFolderAndFileName(model_dir, "plnet_s0.engine");
     plnet_s1_onnx = ConcatenateFolderAndFileName(model_dir, "plnet_s1.onnx");
