@@ -32,9 +32,17 @@ keyframe:
   min_init_stereo_feature: 90
   lost_num_match: 10
   min_num_match: 30
-  max_num_match: 80
-  tracking_point_rate: 0.65
-  tracking_parallax_rate: 0.1
+  # max_num_match: ANY frame whose match_num drops below this triggers a
+  # KF — so LOWER = fewer keyframes. SP baseline at 80 with kpts=400.
+  # XFeat sustains ~200 LighterGlue matches per frame easily, so 80 is
+  # too eager. 40 is the sweet spot per the keyframe-rate sweep.
+  max_num_match: 40            # was 80
+  # tracking_point_rate: ratio match_num/features below which we KF.
+  # LOWER = tolerate worse tracking = fewer KFs. SP at 0.65 was tuned for
+  # 400 LightGlue matches; XFeat+LighterGlue matches less densely so we
+  # need a more permissive threshold.
+  tracking_point_rate: 0.40    # was 0.65
+  tracking_parallax_rate: 0.20 # was 0.10 — require more parallax to KF
 
 optimization:
   tracking:

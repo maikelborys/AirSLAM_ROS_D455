@@ -28,13 +28,33 @@ Compared to the validated SuperPoint+LightGlue baseline on `jazzy-port`
 
 ### MH_03_medium
 
-| Run | Extractor | Matcher | max_kpts | FPS (full) | FPS (peak window) | ATE raw VO | ATE **post-refinement** |
-|---|---|---|---|---|---|---|---|
-| Baseline | SuperPoint+LightGlue | LightGlue | 400 | **38.3** | ~40 | ~0.10 m | **0.039 m** |
-| This branch | XFeat | MNN+Lowe (CPU) | 1024 | 16.85 | 55 | 0.308 m | 0.104 m |
-| This branch | XFeat | MNN+Lowe (cuBLAS) | 1024 | 16.9 | 55 | 0.308 m | — |
-| This branch | XFeat | MNN+Lowe (CPU) | 400 | 33.20 | — | 3.03 m | — |
-| **This branch (best)** | **XFeat** | **LighterGlue N=512** | **512** | **18.67** | **99 FPS** ⚡ | **0.251 m** | **0.061 m** ⭐ |
+| Run | Extractor | Matcher | max_kpts | KF count | FPS (full) | FPS (peak window) | ATE raw VO | ATE **post-refinement** |
+|---|---|---|---|---|---|---|---|---|
+| Baseline | SuperPoint+LightGlue | LightGlue | 400 | 302 | **38.3** | ~40 | ~0.10 m | **0.039 m** |
+| This branch | XFeat | MNN+Lowe (CPU) | 1024 | 1157 | 16.85 | 55 | 0.308 m | 0.104 m |
+| This branch | XFeat | MNN+Lowe (cuBLAS) | 1024 | ~1150 | 16.9 | 55 | 0.308 m | — |
+| This branch | XFeat | MNN+Lowe (CPU) | 400 | ~1150 | 33.20 | — | 3.03 m | — |
+| This branch | XFeat | LighterGlue N=512 | 512 | 1130 | 18.67 | 99 ⚡ | 0.251 m | 0.061 m |
+| **This branch (BEST)** ⭐ | **XFeat** | **LighterGlue N=512** | **512** | **408** | **51.3** 🔥 | **99+** | **0.207 m** | **0.070 m** |
+
+**The "BEST" row** is the result of the keyframe-rate tune:
+`tracking_point_rate: 0.65 → 0.40`, `max_num_match: 80 → 40`,
+`tracking_parallax_rate: 0.10 → 0.20`. AirSLAM was tuned for
+SuperPoint+LightGlue which produces dense matches; XFeat+LighterGlue
+matches less densely, so the default thresholds tripped keyframe
+insertion almost every other frame (1130/2700). Loosening the
+thresholds drops keyframes to 408 (1 every 6.6 frames vs SP's 1 every
+8.9) and slashes BA work end-to-end.
+
+**This is the result that closes the FPS gap to SuperPoint:**
+
+  AirSLAM-XFeat at 51.3 FPS is now **34% FASTER** than the SuperPoint
+  baseline (38.3 FPS) on the same hardware, while staying
+  **fully Apache-2.0 commercial-deployable**. Raw VO ATE 0.207 m, post-
+  refinement ATE 0.070 m (~1.8x behind the paper number, same order of
+  magnitude). The fewer-keyframes trajectory accumulates LESS drift in
+  raw VO (0.207 vs 0.251 m) and refines to ~14% worse than the
+  dense-KF run (0.070 vs 0.061 m) — that's the speed/precision knob.
 
 The LighterGlue row is the headline result of this session:
 
