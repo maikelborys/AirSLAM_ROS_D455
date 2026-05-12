@@ -1,187 +1,265 @@
-<h1 align="center">AirSLAM ROS2 (VIO)</h1>
+<h1 align="center">AirSLAM-XFeat (ROS 2 Jazzy + TensorRT 10 + libtorch)</h1>
 
 <p align="center">
-    <em>ROS 2 Jazzy + TensorRT 10 port — stereo + IMU visual-inertial SLAM, no LiDAR.</em>
+    <em>Apache-2.0 fork of AirSLAM with the SuperPoint perception layer replaced by XFeat + LighterGlue.</em>
 </p>
 
 <p align="center">
-    <em>Fork of <a href="https://github.com/sair-lab/AirSLAM">sair-lab/AirSLAM</a> (TRO 2025) ported to Ubuntu 24.04 / ROS 2 Jazzy / TensorRT 10.</em>
+    <em>Stereo + IMU visual-inertial SLAM. No LiDAR.</em>
 </p>
 
 <p align="center">
-    Original authors:
-    <a href = "https://scholar.google.com/citations?user=-p7HvCMAAAAJ&hl=zh-CN">Kuan Xu</a>,
-    <a href = "https://github.com/yuefanhao">Yuefan Hao</a>,
-    <a href = "https://scholar.google.com/citations?user=XcV_sesAAAAJ&hl=en">Shenghai Yuan</a>,
-    <a href = "https://sairlab.org/team/chenw/">Chen Wang</a>,
-    <a href = "https://scholar.google.com.sg/citations?user=Fmrv3J8AAAAJ&hl=en">Lihua Xie</a>.
-    <a href = "https://arxiv.org/pdf/2408.03520">[paper]</a>
-    <a href = "https://xukuanhit.github.io/airslam/">[project site]</a>
+    Branch <code>jazzy-xfeat-ros2</code> ·
+    51.3 FPS on EuRoC MH_03 (vs 38.3 FPS SuperPoint baseline) ·
+    ATE 0.070 m post-refinement (vs 0.039 m baseline) ·
+    <strong>fully commercial-deployable license stack.</strong>
 </p>
 
 <p align="center">
-    Port author: <a href="https://github.com/maikelborys">Maikel</a> (branch <code>jazzy-port</code>).
+    Upstream:
+    <a href="https://github.com/sair-lab/AirSLAM">sair-lab/AirSLAM</a> (TRO 2025) ·
+    Port lineage: <a href="https://github.com/maikelborys/AirSLAM_ROS_D455/tree/jazzy-port">jazzy-port</a> (ROS 2 Jazzy / TRT 10 port).
+</p>
+
+<p align="center">
+    Port author: <a href="https://github.com/maikelborys">Maikel</a>.
 </p>
 
 ---
 
-**AirSLAM** is a hybrid (deep-learning + traditional optimisation) point-line visual SLAM that targets short- and long-term illumination changes. PLNet extracts point + line features in one pass, LightGlue / SuperGlue match them, and a relocalization pipeline lets the robot re-find itself in a previously-built map.
+## Why this fork exists
 
-This repository is the **ROS 2 Jazzy / TensorRT 10 port** of upstream `sair-lab/AirSLAM`. The `master` branch is the legacy ROS 1 + ros1_bridge fork for D455 (kept for reference); the current work lives on **`jazzy-port`**.
+Upstream AirSLAM uses **SuperPoint** (MagicLeap) for keypoint extraction
+and **LightGlue** / **SuperGlue** for matching. SuperPoint's weights are
+licensed for **non-commercial research use only**, and the shipped DBoW2
+vocabulary (`voc/point_voc_L4.bin`) is derived from SuperPoint features
+— so the entire upstream stack is **license-tainted for commercial
+deployment**.
 
-## Validated results
+This branch swaps the perception layer for an **Apache-2.0 stack**:
 
-Running the three-phase pipeline on EuRoC `MH_03_medium` (RTX 4070 8 GB, FP32 + builderOptimizationLevel=5 + `--noTF32`):
-
-| Stage | Metric | Value |
+| Component | Upstream (non-commercial) | This branch (Apache-2.0) |
 |---|---|---|
-| `visual_odometry` | Throughput | **38.3 FPS** stereo+IMU @ 752×480 |
-|  | Keyframes / mappoints | 302 / 49,325 |
-| `map_refinement` | Loop closures | 127 |
-|  | **ATE RMSE post-refinement** | **0.0386 m** (paper: ~0.04 m) |
-|  | Mappoint cleanup | 49,325 → 37,980 |
-| `relocalization` | Recall on 2,700 queries | **100 %** |
-|  | Latency | 49 ms / query (~20 Hz) |
+| Feature extractor | SuperPoint (MagicLeap) | **XFeat** (Verlab) |
+| Matcher | LightGlue / SuperGlue | **LighterGlue** + MNN fallback |
+| DBoW2 vocab | `point_voc_L4.bin` (SP-derived) | **`point_voc_L4_xfeat.bin`** (XFeat-trained) |
+| SLAM backend (g2o, IMU, BA, keyframes, loop closure) | unchanged | unchanged |
 
-> The numbers in the paper's Table 2 are *post-refinement* (`trajectory_v1.txt`). Raw VO output (`trajectory_v0.txt`) sits at ~0.10 m on this sequence; refinement closes that gap.
+The SLAM math is identical. Only the feature/matcher/vocab layer changes.
 
-## What changed vs upstream
+## Validated results — EuRoC
 
-This is an **API-compat port**, not a fork with new features. The algorithm is unchanged. Surface changes:
+End-to-end pipeline (visual odometry → map refinement) on a single RTX
+4070, FP32 + `--noTF32` + `builderOptimizationLevel=5`:
 
-### Build system
-- `package.xml` → format 3, `ament_cmake` (was catkin).
-- `CMakeLists.txt` → ament + two-library split:
-  - `air_slam_core_lib` — networks + geometry + g2o vertices/edges (no ROS deps).
-  - `air_slam_lib` — `Map` / `MapBuilder` / `MapRefiner` / `MapUser` / `RosPublisher` / `g2o_optimization` (ROS-aware).
-- `cmake/FindG2O.cmake` filters `NOTFOUND` from `G2O_LIBRARIES` so the slim `apt libg2o-dev` install (no hierarchical/incremental/parser libs) doesn't fail the configure step.
-- The original ROS 1 `CMakeLists.txt` is preserved at `CMakeLists.txt.ros1.bak`.
+| Sequence | FPS (full) | Raw VO ATE | Post-refinement ATE | Keyframes |
+|---|---|---|---|---|
+| **MH_03_medium** | **51.3** | 0.207 m | **0.070 m** | 408 |
+| **V1_01_easy** (Vicon Room) | **63.5** | **0.083 m** | (raw only) | 219 |
+| MH_03 — SuperPoint baseline (paper) | 38.3 | ~0.10 m | 0.039 m | 302 |
 
-### TensorRT 8 → 10 migration
-- `3rdparty/tensorrtbuffer/include/buffers.h` rewritten to the TRT 10 explicit-tensor API: `getNbIOTensors` / `setInputTensorAddress` / `enqueueV3`. `mDeviceBindings` is now a name-keyed `std::map<std::string, void*>`. New helper `setTensorAddresses(context)` wires every I/O device buffer onto the execution context.
-- `safe_common.h` got a fix for `roundUp` deduction now that `Dims.d[]` is `int64_t` in TRT 10.
-- `sample_entrypoints.h` had `NvCaffeParser.h` and `NvUffParser.h` removed (parsers gone in TRT 10).
-- Each network class (`SuperPoint`, `SuperGlue`, `SuperPointLightGlue`, `PLNet`) gained a private `cudaStream_t` and switched from `executeV2(bindings)` → `setInputShape(name, dims)` + `setTensorAddresses(ctx)` + `enqueueV3(stream)` + `cudaStreamSynchronize(stream)`. PLNet's cached binding-index members were removed (TRT 10 keys directly by tensor name).
-- A compile-only smoke test at `3rdparty/tensorrtbuffer/test/buffers_compile_test.cpp` runs on every build.
-- Two numerical-equivalence harnesses verify network output bit-matches the PyTorch / onnxruntime reference: `scripts/numerical_diff_superpoint.py` (cosine = 1.0) and `scripts/numerical_diff_lightglue.py` (cosine = 1.0 with `--builderOptimizationLevel=5 --noTF32`).
+**This branch is 34 % faster than the SuperPoint baseline at 1.8× the
+ATE — and it can be commercially deployed.**
 
-### ROS 1 → ROS 2 Jazzy migration
-- `RosPublisher` rewritten on top of `rclcpp::Publisher<T>::SharedPtr` and `tf2_ros::TransformBroadcaster`. All ten upstream publishers (`/AirSLAM/feature`, `/AirSLAM/frame_pose`, `/AirSLAM/keyframe`, `/AirSLAM/odometry`, `/AirSLAM/map`, `/AirSLAM/mapline`, `/AirSLAM/reloc/{trajectory,pose,matches}`, `/AirSLAM/LatestOdometry`) preserved 1:1.
-- `MapBuilder`, `MapRefiner`, `MapUser` constructors now take `rclcpp::Node::SharedPtr` instead of `ros::NodeHandle`.
-- `MapRefiner::PubMap` and `MapUser::Relocalization` had their `ros::Time::now()` and `ros::Rate` replaced with `std::chrono` and `rclcpp::Rate`.
-- The four executables (`visual_odometry`, `map_refinement`, `relocalization`, `test_feature`) rewritten with `rclcpp::init` / `Node::declare_parameter` / `Node::get_parameter` / `rclcpp::ok` / `rclcpp::shutdown`.
-- Every ROS 1 `.launch` XML converted to a ROS 2 `.launch.py` (10 files total).
-- A new `rviz/vo_jazzy.rviz` covers all topics with explicit QoS (`Reliability=Reliable`, `Durability=Volatile`, `History=Keep Last`, depth=10) so RViz2 subscribes cleanly.
+XFeat extractor in isolation: **564 Hz** (1.77 ms / frame on the GPU
+side with CUDA post-processing) — see `output/benchmarks_xfeat.md` for
+the full benchmark log.
 
-### Engine pipeline
-- `scripts/patch_onnx_for_trt10.py` inserts `Cast Int32 → Int64` nodes on `Concat` / `Mul` / `Add` / `Where` / etc. ops that TRT 10's stricter ONNX importer rejects (zero patches needed for LightGlue and PLNet, 1 for SuperPoint, 156 for SuperGlue).
-- `scripts/build_engines.sh` regenerates the five `.engine` files from the patched ONNX with `trtexec`. Defaults to `--noTF32 --builderOptimizationLevel=5` for the most accurate kernels (overridable via `PRECISION_FLAG=` and `OPT_LEVEL=` env vars).
+## License posture
 
-### Refactor: `utils.h` decoupling
-- The `g2o::Line3D`-dependent helpers moved to a new `include/utils_g2o.h`. The TRT 10 network sources (super_point, plnet, etc.) now compile without `g2o` on the include path, which keeps `air_slam_core_lib` ROS-and-g2o-free.
+| Component | License | Commercial use |
+|---|---|---|
+| AirSLAM source | Apache-2.0 | ✅ |
+| **XFeat** weights | **Apache-2.0** | ✅ |
+| **LighterGlue** weights | **Apache-2.0** | ✅ |
+| **`voc/point_voc_L4_xfeat.bin`** (this branch) | Apache-2.0 (XFeat-derived) | ✅ |
+| MNN matcher | algorithm only, no weights | ✅ |
+| DBoW2 / g2o / Eigen / OpenCV / Boost | BSD / MIT / MPL / Apache | ✅ |
+| TensorRT 10, CUDA, cuBLAS | NVIDIA EULA, free runtime | ✅ |
+| libtorch | BSD-3 | ✅ |
+| SuperPoint (upstream) | Non-commercial research | ❌ — not used here |
 
-## Install (Ubuntu 24.04 + ROS 2 Jazzy)
+This is the **first and only license-clean path** to a deployable
+AirSLAM as of writing.
 
-System dependencies — one-time:
+## Quick start
+
+System requirements:
+
+- Ubuntu 24.04, ROS 2 Jazzy, CUDA 12.6, TensorRT 10.16
+- NVIDIA GPU with ~2 GB VRAM (engines + libtorch session)
+- libtorch 2.7+ (CUDA build, installed at `~/libtorch`)
 
 ```bash
+# 1) One-time system dependencies
 sudo apt install -y \
   ros-jazzy-desktop ros-jazzy-cv-bridge ros-jazzy-image-transport \
   ros-jazzy-tf2 ros-jazzy-tf2-ros ros-jazzy-tf2-geometry-msgs \
   libg2o-dev libgoogle-glog-dev libgflags-dev \
   libopencv-dev libeigen3-dev libyaml-cpp-dev libboost-serialization-dev
-```
 
-Plus a working **CUDA 12.x + TensorRT 10** install (host has CUDA 12.6 + TRT 10.16). For ONNX patching:
+# 2) Clone + symlink
+git clone -b jazzy-xfeat-ros2 https://github.com/maikelborys/AirSLAM_ROS_D455.git \
+  ~/coding/AirSLAM_XFEAT
+ln -s ~/coding/AirSLAM_XFEAT ~/ros2_ws/src/air_slam_xfeat
 
-```bash
-uv venv ~/.airslam_venv --python 3.12
-source ~/.airslam_venv/bin/activate
-uv pip install onnx onnx-graphsurgeon onnxruntime opencv-python numpy
-```
+# 3) Generate XFeat ONNX + TRT 10 engine (one-shot, ~3 min idempotent)
+cd ~/coding/AirSLAM_XFEAT
+bash scripts/get_xfeat_onnx.sh
+python scripts/patch_onnx_for_trt10.py output/xfeat.onnx
+BUILD_ENGINES=xfeat bash scripts/build_engines.sh
 
-Clone + symlink into a colcon workspace:
+# 4) Export LighterGlue TorchScript (.pt) — needs CUDA torch wheel
+source ~/.cache/airslam_xfeat/export_venv/bin/activate
+# (one-time) git clone --depth 1 https://github.com/cvg/LightGlue.git /tmp/cvg_lightglue
+python scripts/export_lighterglue_torchscript.py \
+  --xfeat-repo ~/.cache/airslam_xfeat/accelerated_features \
+  --cvg-lightglue /tmp/cvg_lightglue \
+  --output output/lighterglue.pt --num-kpts 512
 
-```bash
-git clone -b jazzy-port https://github.com/maikelborys/AirSLAM_ROS_D455.git ~/coding/AirSLAM
-ln -s ~/coding/AirSLAM ~/ros2_ws/src/air_slam
-```
-
-Build:
-
-```bash
-cd ~/ros2_ws
-source /opt/ros/jazzy/setup.bash
-colcon build --packages-select air_slam --symlink-install
-```
-
-Generate engines (≈5 min on RTX 4070):
-
-```bash
-source ~/.airslam_venv/bin/activate
-cd ~/coding/AirSLAM
-python scripts/patch_onnx_for_trt10.py output/superpoint_v1_sim_int32.onnx \
-                                       output/superpoint_lightglue.onnx \
-                                       output/superglue_outdoor_sim_int32.onnx \
-                                       output/superglue_indoor_sim_int32.onnx \
-                                       output/plnet_s0.onnx output/plnet_s1.onnx
-bash scripts/build_engines.sh
+# 5) Build
+cd ~/ros2_ws && source /opt/ros/jazzy/setup.bash
+colcon build --packages-select air_slam_xfeat --symlink-install
 ```
 
 ## Run
 
-EuRoC `MH_03_medium` end-to-end pipeline (the validation flow):
+EuRoC MH_03 end-to-end pipeline with live RViz visualization:
 
 ```bash
 source /opt/ros/jazzy/setup.bash
 source ~/ros2_ws/install/setup.bash
 
-# 1. Visual-inertial odometry — builds an initial map.
-ros2 launch air_slam vo_euroc.launch.py \
+# 1) Visual odometry (51 FPS, ~50 s for 2700 frames + map save)
+ros2 launch air_slam_xfeat vo_euroc_xfeat_lighterglue.launch.py \
   dataroot:=/path/to/MH_03_medium/mav0 \
-  saving_dir:=/tmp/airslam_mh03 \
-  model_dir:=/home/maikel/coding/AirSLAM/output
+  saving_dir:=/tmp/airslam_xfeat_mh03 \
+  model_dir:=~/coding/AirSLAM_XFEAT/output \
+  visualization:=true
 
-# 2. Offline map refinement (loop closure + global BA + map merge).
-ros2 launch air_slam mr_euroc.launch.py \
-  map_root:=/tmp/airslam_mh03 \
-  model_dir:=/home/maikel/coding/AirSLAM/output
+# 2) Map refinement (loop closure + global BA, ~3 min)
+ros2 launch air_slam_xfeat mr_euroc_xfeat.launch.py \
+  map_root:=/tmp/airslam_xfeat_mh03 \
+  voc_path:=~/coding/AirSLAM_XFEAT/voc/point_voc_L4_xfeat.bin \
+  model_dir:=~/coding/AirSLAM_XFEAT/output
 
-# 3. Relocalization — query images against the refined map.
-ros2 launch air_slam reloc_euroc.launch.py \
-  map_root:=/tmp/airslam_mh03 \
-  dataroot:=/path/to/MH_03_medium/mav0/cam0/data \
-  model_dir:=/home/maikel/coding/AirSLAM/output
-
-# 4. Compute ATE.
-evo_ape tum  /path/to/MH_03_medium/mav0/state_groundtruth_estimate0/data_tum.txt \
-             /tmp/airslam_mh03/trajectory_v1.txt -va
+# 3) Compute ATE
+evo_ape tum \
+  /path/to/MH_03_medium/mav0/state_groundtruth_estimate0/data_tum.txt \
+  /tmp/airslam_xfeat_mh03/trajectory_v1.txt -va
+# Expect: ATE RMSE ≈ 0.070 m
 ```
 
-All launches accept `visualization:=false` to suppress RViz2.
+The launch file accepts `max_frames:=N` and `skip_save_map:=1` for fast
+iteration during tuning.
 
-## RViz topics (preconfigured in `rviz/vo_jazzy.rviz`)
+## RViz topics (preconfigured at `rviz/vo_jazzy.rviz`)
 
 | Topic | Type | Display |
 |---|---|---|
-| `/AirSLAM/feature` | `sensor_msgs/Image` | Live image with feature/match overlay |
+| `/AirSLAM/feature` | `sensor_msgs/Image` | Live image + keypoint overlay |
 | `/AirSLAM/frame_pose` | `geometry_msgs/PoseStamped` | Current camera pose (axes) |
 | `/AirSLAM/odometry` | `nav_msgs/Path` | Trajectory polyline (green) |
 | `/AirSLAM/keyframe` | `geometry_msgs/PoseArray` | Keyframe axes (red) |
-| `/AirSLAM/map` | `sensor_msgs/PointCloud` | Mappoints (yellow points) |
-| `/AirSLAM/mapline` | `visualization_msgs/Marker` | 3D line segments |
-| `/AirSLAM/LatestOdometry` | `nav_msgs/Odometry` | Per-frame odometry |
-| `/AirSLAM/reloc/trajectory` | `Marker` | Reloc query trail (green spheres) |
-| `/AirSLAM/reloc/pose` | `PoseStamped` | Reloc current pose (cyan axes) |
-| `/AirSLAM/reloc/matches` | `Marker` | Camera↔mappoint match lines |
+| `/AirSLAM/map` | `visualization_msgs/MarkerArray` | Mappoints (landmark cloud) |
+| `/AirSLAM/LatestOdometry` | `nav_msgs/Odometry` | Per-frame odometry (Nav2 drop-in) |
+| `/AirSLAM/mapline` | `visualization_msgs/MarkerArray` | Map lines (empty in XFeat mode) |
+| TF `map → diff_bot` | `tf2_msgs/TFMessage` | Pose broadcast |
 
-TF tree: `map → camera`, broadcast by `RosPublisher` once per frame.
+## Architecture in one diagram
 
-## Original supported sequences
+```
+Image bytes (Dataset or D455 topic)
+  │
+  ▼
+cv::resize → 480×752 grayscale (float32)
+  │
+  ▼ (GPU)
+┌──────────────────────┐    ┌──────────────────────────┐
+│  XFeat TRT 10 engine │ ─→ │  CUDA post-proc (4 kernels) │
+│  0.7 ms / frame      │    │  softmax / NMS / top-K /  │
+│  feats, keypts, rel  │    │  bilinear sample          │
+└──────────────────────┘    │  → 67-row Eigen matrix    │
+                            └──────────────────────────┘
+                                       │
+                                       ▼ (GPU)
+                            ┌──────────────────────────┐
+                            │  LighterGlue TorchScript │
+                            │  via libtorch, attention │
+                            │  → matches + scores      │
+                            └──────────────────────────┘
+                                       │
+                                       ▼ (CPU)
+                            ┌──────────────────────────┐
+                            │  MapBuilder              │
+                            │  – stereo triangulation  │
+                            │  – tracking + g2o local  │
+                            │    BA on keyframes       │
+                            │  – DBoW2 loop closure    │
+                            │    (64-dim XFeat vocab)  │
+                            └──────────────────────────┘
+                                       │
+                                       ▼
+                            ROS 2 topics
+                            (path, mappoints, TF, …)
+```
 
-The `launch/` folder still ships the same configuration variants as upstream — EuRoC dark, OIVIO, TartanAir, UMA Bumblebee — only with `.launch.py` versions. Adapt `dataroot:=` to your local paths.
+Full diagrams in `ARCHITECTURE.md`.
+
+## Docs index
+
+| File | Read when |
+|---|---|
+| `README.md` (this) | First contact with the repo |
+| `CLAUDE.md` | Cold-starting a Claude Code session — hard rules X1–X8 |
+| `STATUS.md` | Latest measured numbers, what works, what's limited, future work |
+| `ARCHITECTURE.md` | Pipeline layered diagram, per-frame data flow, full file map |
+| `PROCESS.md` | Journey: what was tried, what failed (ONNX export ×4), KF revelation, lessons learned |
+| `README_JAZZY_XFEAT.md` | Delta vs the SuperPoint jazzy-port |
+| `output/benchmarks_xfeat.md` | Full benchmark log + bottleneck analysis |
+| `README_JAZZY.md` | Original jazzy-port era doc (SuperPoint baseline reference) |
+
+## What's in scope, what isn't
+
+In scope, validated:
+- ✅ Full XFeat + LighterGlue + 64-dim vocab pipeline on EuRoC
+- ✅ ROS 2 Jazzy topic publishing (`/AirSLAM/{feature, frame_pose, map, odometry, keyframe, …}`)
+- ✅ Map refinement (loop closure + global BA) with the new vocab
+- ✅ CUDA post-processing for XFeat (4 kernels in `src/xfeat_postproc.cu`)
+- ✅ Keyframe-rate tuning that handles XFeat's match-density profile
+- ✅ Reproducible build from clean clone (`get_xfeat_onnx.sh` +
+      `export_lighterglue_torchscript.py`)
+
+Out of scope this branch (in `STATUS.md` "Future work"):
+- D455 live-camera ROS 2 topic ingestion — wiring exists on the
+  `master` ROS 1 branch, not yet cherry-picked.
+- Re-enabling lines (PLNet wireframe head) — Phase 6 metrics passed
+  the promotion gate, but lines aren't in the headline config yet.
+- Replacing g2o local BA with GPU BA (MegBA / DeepLM / TheseusAI) —
+  the biggest remaining FPS lever, ~1-2 weeks of risky work.
+- LighterGlue TRT engine (currently TorchScript via libtorch) — would
+  let us drop the libtorch runtime dependency.
+
+## Acknowledgements
+
+Built on top of incredible upstream work:
+
+- **AirSLAM** — Kuan Xu, Yuefan Hao, Shenghai Yuan, Chen Wang,
+  Lihua Xie. [TRO 2025 paper](https://arxiv.org/abs/2408.03520) ·
+  [code](https://github.com/sair-lab/AirSLAM) ·
+  [project site](https://xukuanhit.github.io/airslam/)
+- **XFeat** — Verlab, UFMG.
+  [CVPR 2024 paper](https://arxiv.org/abs/2404.19174) ·
+  [code](https://github.com/verlab/accelerated_features)
+- **LightGlue / LighterGlue** — CVG @ ETH Zürich + Verlab. The kornia
+  port of LightGlue is what the .pt loads.
+- **DBoW2** — D. Gálvez-López, J. D. Tardós (BSD-3).
+- **g2o** — R. Kümmerle et al. (BSD).
 
 ## Citation
+
+If you publish work that uses this branch, please cite the upstream
+papers:
 
 ```bibtex
 @article{xu2024airslam,
@@ -190,10 +268,26 @@ The `launch/` folder still ships the same configuration variants as upstream —
   journal = {IEEE Transactions on Robotics (TRO)},
   year = {2024},
   url = {https://arxiv.org/abs/2408.03520},
-  code = {https://github.com/sair-lab/AirSLAM},
+}
+
+@inproceedings{potje2024xfeat,
+  title = {{XFeat}: Accelerated Features for Lightweight Image Matching},
+  author = {Potje, Guilherme and Cadar, Felipe and Araujo, Andr\'{e} and Martins, Renato and Nascimento, Erickson R.},
+  booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
+  year = {2024},
+}
+
+@inproceedings{lindenberger2023lightglue,
+  title = {{LightGlue}: Local Feature Matching at Light Speed},
+  author = {Lindenberger, Philipp and Sarlin, Paul-Edouard and Pollefeys, Marc},
+  booktitle = {Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)},
+  year = {2023},
 }
 ```
 
 ## License
 
-Original AirSLAM license (see `LICENSE.md`). Port additions inherit the same.
+Apache-2.0 (this branch). Original AirSLAM `LICENSE.md` preserved.
+XFeat and LighterGlue weights are Apache-2.0 per their upstream
+licensing. **SuperPoint weights and the upstream `voc/point_voc_L4.bin`
+are NOT used in this branch.**
