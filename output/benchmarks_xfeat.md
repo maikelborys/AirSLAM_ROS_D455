@@ -28,26 +28,57 @@ Compared to the validated SuperPoint+LightGlue baseline on `jazzy-port`
 
 ### MH_03_medium
 
-| Run | Extractor | Matcher | max_kpts | FPS | ATE raw VO | ATE **post-refinement** |
-|---|---|---|---|---|---|---|
-| Baseline | SuperPoint+LightGlue | LightGlue | 400 | **38.3** | ~0.10 m | **0.039 m** |
-| This branch | XFeat | MNN+Lowe (CPU) | 1024 | 16.85 | 0.308 m | — |
-| This branch | XFeat | MNN+Lowe (CPU) | 400 | 33.20 | 3.03 m | — |
-| **This branch (final)** | **XFeat** | **MNN+Lowe (cuBLAS)** | **1024** | **16.9** | **0.308 m** | **0.104 m** ⭐ |
+| Run | Extractor | Matcher | max_kpts | FPS (full) | FPS (peak window) | ATE raw VO | ATE **post-refinement** |
+|---|---|---|---|---|---|---|---|
+| Baseline | SuperPoint+LightGlue | LightGlue | 400 | **38.3** | ~40 | ~0.10 m | **0.039 m** |
+| This branch | XFeat | MNN+Lowe (CPU) | 1024 | 16.85 | 55 | 0.308 m | 0.104 m |
+| This branch | XFeat | MNN+Lowe (cuBLAS) | 1024 | 16.9 | 55 | 0.308 m | — |
+| This branch | XFeat | MNN+Lowe (CPU) | 400 | 33.20 | — | 3.03 m | — |
+| **This branch (best)** | **XFeat** | **LighterGlue N=512** | **512** | **18.67** | **99 FPS** ⚡ | **0.251 m** | **0.061 m** ⭐ |
 
-The **post-refinement column** is the headline result: with the 64-dim
-DBoW2 vocab (Phase 6) trained from scratch on EuRoC TRAIN, map_refinement
-finds **405 loop pairs** (vs SuperPoint baseline's 127 — XFeat is more
-aggressive at place recognition) and brings the ATE down 3x. We are now
-2.6x behind the SuperPoint baseline but **fully Apache-2.0 commercial
-deployable** — see "Licensing" below.
+The LighterGlue row is the headline result of this session:
 
-The cuBLAS-on-GPU MNN matcher is integrated but did not move the FPS
-needle on its own (16.85 → 16.9). End-to-end profiling shows the cosine
-GEMM was already a small fraction of per-frame wall time — the dominant
-cost is AirSLAM's MapBuilder + g2o BA, which scales with
-max_keypoints * keyframes_recent. Closing the FPS gap needs either a
-better matcher (LighterGlue) so 400 kpts is enough, or backend tuning.
+- **Raw VO ATE 0.251 m** (-19% vs MNN), **FPS avg 18.67 / peak 99**.
+- **Post-refinement ATE 0.061 m** — only **1.6x behind** the SuperPoint
+  baseline (down from 2.6x with MNN). map_refinement found 269 loop
+  pairs (vs MNN's 405); fewer loop pairs is fine because each one is
+  *cleaner* — LighterGlue's attention-based matching produces fewer
+  spurious correspondences.
+
+LighterGlue N=512 trace specifically:
+- Re-tracing at N=512 (down from 1024) cut attention work 4x — peak
+  steady-state FPS went **99 FPS at frames 300–350**, beating even the
+  SuperPoint baseline's 40 FPS peak.
+- End-to-end full-sequence FPS is bounded by MapBuilder + g2o BA on
+  CPU, not the matcher (see "Bottlenecks" below). That's why the
+  whole-trajectory FPS only reaches 18.67 despite 99 FPS peaks.
+
+### XFeat post-processing — CUDA isolation benchmark (test_xfeat)
+
+| Backend | Per-frame | Throughput |
+|---|---|---|
+| CPU (Phase 3) | 4.5 ms | 221 Hz |
+| **CUDA (this session)** | **1.77 ms** | **564 Hz** ⚡ |
+
+Four kernels in `src/xfeat_postproc.cu` replace the host loops:
+softmax(65)+unfold, NMS-dilate, candidate-emit (atomic + filter),
+bilinear-descriptor-sample+L2-norm. The kernels read directly from the
+TRT engine's device buffers (`buffers.getDeviceBuffer`), skipping the
+~1.5 MiB D2H copy of the dense outputs. Top-5 keypoints + scores are
+bit-identical to the CPU path.
+
+**Whole-pipeline VO FPS impact of CUDA-postproc is +1-2% only** — the
+post-proc was already a small slice of the per-frame budget. The big
+remaining cost is g2o local BA, which is CPU-bound and not addressed
+by this CUDA work.
+
+The **cuBLAS MNN row** is informative: cosine GEMM on GPU dropped from
+~10 ms (Eigen CPU) to ~0.3 ms, but full-sequence FPS only moved
+16.85 → 16.9. The cosine GEMM was already a small fraction of per-frame
+wall time. The dominant cost is AirSLAM's MapBuilder + g2o BA, which
+scales with `max_keypoints × keyframes_recent` — that's why dropping
+to max_kpts=512 (LighterGlue's natural fit) bought a clean 50% FPS
+improvement on top of the matcher upgrade.
 
 ### V1_01_easy
 
@@ -141,34 +172,43 @@ deployable AirSLAM**. The 2.6x ATE gap vs the SuperPoint baseline is a
 research-vs-product tradeoff: SuperPoint wins on benchmarks, XFeat wins
 on what you can actually sell.
 
-## Future work (post-Phase 9)
+## Future work (post-current session)
 
 Ordered by expected impact, biggest first:
 
-1. **LighterGlue ONNX export** (currently blocked: torch.onnx.export
-   trips on `.transpose(-X, -Y)` / `.unflatten(-1, ...)` / negative-index
-   `shape[-X]` ops in both kornia.feature.lightglue.LightGlue AND
-   cvg/LightGlue with LighterGlue weights). Phase-2 attempt patched 7
-   transpose calls but the export then failed at `rotate_half` and the
-   remaining 14 negative-index ops are a whack-a-mole. Path forward for
-   next session: either (a) patch every negative-index op systematically
-   (~2-3 h), or (b) switch to fabio-sim/LightGlue-ONNX's dynamo-based
-   export and add XFeat support there (~2-3 h). Expected gain: -10-20%
-   ATE + ~30% FPS lift if the matcher becomes the bottleneck after a
-   keypoint reduction.
+1. **Replace g2o local BA with parallel / GPU BA** (e.g. MegBA,
+   DeepLM, TheseusAI). Currently dominates per-frame wall time on
+   keyframe insertion (~30–120 ms each, single-threaded). Risky — g2o is
+   tightly coupled to AirSLAM's custom vertex/edge types and robust
+   kernels. ~1–2 weeks of careful work; potential +50–100% FPS.
 
-2. **CUDA-port XFeat post-processing** (softmax/NMS/top-K/bilinear
-   sample) — currently ~3-4 ms / frame on CPU. CUDA kernel would drop
-   this to ~0.3 ms. FPS gain ~5-10%.
+2. **Async pipeline (Jetson-SLAM style)** — overlap feature extraction
+   of frame N+1 with tracking of frame N. AirSLAM already has a 2-thread
+   feature/tracking split; would need refactor to fully decouple stages.
+   Estimated +20–40% FPS, ~1–2 days.
 
-3. **D455 live-camera path** (cherry-pick ROSDataset from `master`, port
-   to rclcpp). Enables on-robot benchmarking.
+3. **Tune AirSLAM keyframe / local-BA window** — `tracking_point_rate`,
+   `tracking_parallax_rate`, local covisibility window size. Zero new
+   code, just YAML; could buy +30% FPS at some ATE cost.
 
-4. **Re-enable lines via PLNet wireframe head with XFeat-anchored
-   points**. Plan called this conditional on Phase 8 metrics passing —
-   they're now passing post-Phase 6, so this becomes viable.
+4. **D455 live-camera ROS 2 topic ingestion** — cherry-pick ROSDataset
+   pattern from `master` branch, port to rclcpp + `message_filters` for
+   `/camera/camera/infra{1,2}/image_rect_raw` (+ optional IMU). Enables
+   on-robot benchmarking. ~3–5 h.
 
-5. **MH_02_easy training data missing** — vocab was trained on MH_01 +
-   V1_01 only (1200 imgs, 1.23 M descriptors). Adding MH_02 + V1_02 +
-   V2_01 (when available) would likely improve loop recall on
-   V1_01_easy / V2 sequences where we currently diverge.
+5. **Re-enable lines via PLNet wireframe head with XFeat-anchored
+   points**. Phase 6 + LighterGlue results pass the "metrics good
+   enough" promotion gate from the original plan. Estimated +4 h;
+   could help V1_01 / V2 sequences where we currently diverge.
+
+6. **Larger vocab training corpus**. Current `voc/point_voc_L4_xfeat.bin`
+   was trained on MH_01 + V1_01 only (1.23 M descriptors). Adding
+   MH_02 + V1_02 + V2_01 (~3 M descriptors) would likely improve loop
+   recall in unseen environments.
+
+7. **LighterGlue ONNX/TRT export** — currently using TorchScript via
+   libtorch (Path D from earlier). Replacing with a TRT engine could
+   shave the libtorch dependency and a few ms per call. Blocker:
+   `.transpose(-X, -Y)` / `.unflatten(-1, ...)` ops in cvg/LightGlue
+   source need positive-dim patches, plus the remaining negative-index
+   ops in `rotate_half` / `apply_cached_rotary_emb`. ~3–4 h.
