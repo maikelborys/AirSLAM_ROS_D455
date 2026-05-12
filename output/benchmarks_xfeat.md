@@ -285,9 +285,9 @@ Each frame is independent (no temporal prior).
 ### Map source matters — V1_01_easy vs V1_02_medium as the reference map
 
 Identical query stream (V1_03_difficult frames), identical reloc
-pipeline. Only the underlying refined map changes.
+pipeline (XFeat + PLNet lines). Only the underlying refined map changes.
 
-| Metric | Map = V1_01_easy | Map = V1_02_medium | Δ |
+| Metric | Map = V1_01_easy + lines | Map = V1_02_medium + lines | Δ |
 |---|---|---|---|
 | Map maplines | 5 299 | 5 106 | — |
 | Map loop pairs (MR) | 15 | 18 | — |
@@ -322,6 +322,91 @@ frames where the point distribution is consistent with multiple map
 poses. Tightening `min_inlier_num` would trade recall for fewer
 outliers.
 
+### Lines on/off in reloc — V1_03 → V1_02_medium
+
+Same V1_02 reference map, same V1_03 queries. The only difference is
+whether the map (and the per-query feature detector) uses PLNet lines
+or runs XFeat-only. The points-only path uses the new
+`reloc_euroc_xfeat.yaml` (line_extractor=0) and a points-only mapv1.bin.
+
+| Metric | Map + LINES | Map points-only | Δ |
+|---|---|---|---|
+| Reloc recall | **82.04%** (1763/2149) | 80.04% (1720/2149) | **+2.0 pp** |
+| Median position error | **0.097 m** | 0.101 m | −3.9% |
+| Mean position error | **0.184 m** | 0.208 m | **−11.5%** |
+| p90 position error | 0.181 m | 0.181 m | ≈ |
+| < 10 cm | **52.1%** | 49.7% | +2.4 pp |
+| < 20 cm | 92.0% | 91.7% | ≈ |
+| < 30 cm | 96.5% | 96.3% | ≈ |
+| Outliers > 1 m | **1.3%** | 1.6% | −0.3 pp |
+
+**Lines give a small but consistent reloc win in Vicon Room** (~2 pp
+recall, ~12% mean error reduction). This mirrors the VO result (V1_03
+ATE −4.1% with lines): when point texture is sparse and walls are the
+dominant cue, the PLNet junction DBoW pulls extra candidates that the
+64-dim XFeat point DBoW misses, and the lines tighten pose refinement.
+
+### Machine Hall cross-sequence reloc — MH_05 → MH_03 map
+
+Mirroring the Vicon Room test on a structurally very different
+environment: MH_05_difficult (2273 frames, motion blur + low light)
+queried against the MH_03_medium refined map. **Same room is the
+exception in Machine Hall** — different MH sequences traverse different
+parts of an industrial building, so the cross-sequence recall ceiling
+is naturally lower than the Vicon Room same-room test.
+
+| Metric | Map + LINES | Map points-only | Δ |
+|---|---|---|---|
+| Map maplines | 16 405 | 0 | — |
+| Reloc recall | 35.32% (803/2273) | 35.94% (817/2273) | −0.6 pp |
+| Median position error | 0.110 m | 0.109 m | ≈ |
+| Mean position error | 0.142 m | 0.144 m | ≈ |
+| p90 | 0.227 m | 0.226 m | ≈ |
+| < 10 cm | 45.6% | 45.7% | ≈ |
+| < 30 cm | 94.8% | 94.7% | ≈ |
+| Outliers > 1 m | ~0.6% | ~0.6% | ≈ |
+
+**Lines are neutral in Machine Hall reloc** (Δ < 1 pp on every metric).
+The difference with Vicon Room is environment-driven:
+
+- Machine Hall has **dense industrial texture** (cables, boxes,
+  equipment) — XFeat points already saturate inlier budgets, leaving
+  little room for lines to add information.
+- The visible lines in MH are mostly **long parallel structural edges**
+  (beams, floor seams) that are visually self-similar and contribute
+  weak constraint vs Vicon Room's small-room corner geometry.
+
+The 35% recall (vs 82% for V1_03 → V1_02) is structural to MH being a
+multi-section building: cross-sequence MH reloc is genuinely a place
+recognition problem across different building zones, not just a viewpoint
+problem. Tightening that gap would need more MH sequences feeding into
+a richer joint map.
+
+### When lines win, when they don't — synthesis across 3 experiments
+
+| Bench | Environment | Δ ATE / recall | Verdict |
+|---|---|---|---|
+| **VO V1_03 with lines** | Vicon Room | **−4.1% ATE** | Lines win |
+| **Reloc V1_03 → V1_02** | Vicon Room | +2 pp recall / −12% mean error | Lines win |
+| **Reloc MH_05 → MH_03** | Machine Hall | −0.6 pp / ≈0% error | Lines neutral |
+
+**Practical rule for picking a YAML** (informs the `_lines` vs
+points-only choice at the YAML level — no recompile needed):
+
+- **Use lines** for: indoor rooms with low texture, exposed corners,
+  walls/floors as dominant cues (typical office, lab, warehouse cleared
+  of clutter, hallway corridors).
+- **Skip lines** for: cluttered industrial environments where point
+  texture is abundant and lines are mostly long parallel ambiguous
+  edges. Also for nature/outdoor — long edges are scarce and lines
+  pure overhead.
+
+The FPS hit of lines is bounded by KF density (PLNet runs on KFs only).
+Vicon Room sequences pay ~0 FPS; Machine Hall pays ~10%. So unless the
+scene is decisively textured (industrial / outdoor), defaulting to
+`_lines` is safe and gives a free 2-4% accuracy bonus on the rooms
+where it matters.
+
 ### Reproducing
 
 ```bash
@@ -346,6 +431,18 @@ awk '/^success/ {printf "%.9f %s %s %s %s %s %s %s\n", $2/1e9, $3, $4, $5, $6, $
 evo_ape euroc \
   $HOME/datasets/euroc/V1_03_difficult/mav0/state_groundtruth_estimate0/data.csv \
   /tmp/airslam_xfeat_lines_V1_02_medium/reloc_V1_03_success.tum -va
+
+# Lines-off A/B (uses the new reloc_euroc_xfeat.yaml + reloc_euroc_xfeat.launch.py
+# with a points-only mapv1 produced by vo_euroc_xfeat_lighterglue.launch.py):
+ros2 launch air_slam_xfeat reloc_euroc_xfeat.launch.py \
+  map_root:=/tmp/airslam_xfeat_pointsonly_V1_02_medium \
+  traj_path:=/tmp/airslam_xfeat_pointsonly_V1_02_medium/reloc_V1_03.txt
+
+# Machine Hall cross-sequence (MH_05 queries against MH_03 map):
+ros2 launch air_slam_xfeat reloc_euroc_xfeat_lines.launch.py \
+  map_root:=/tmp/airslam_xfeat_lines_MH_03 \
+  dataroot:=$HOME/datasets/euroc/MH_05_difficult/mav0/cam0/data \
+  traj_path:=/tmp/airslam_xfeat_lines_MH_03/reloc_MH_05.txt
 ```
 
 ## Future work (post-current session)

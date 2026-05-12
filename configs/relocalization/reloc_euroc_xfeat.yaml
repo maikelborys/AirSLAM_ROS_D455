@@ -1,0 +1,54 @@
+# Single-image relocalization on an XFeat-points-only refined map
+# (no PLNet lines/junctions — the points-only headline path). Pairs
+# with vo_euroc_xfeat_lighterglue.yaml + mr_euroc_xfeat.yaml. The map
+# has only the 64-dim XFeat point DBoW; the junction DBoW is empty
+# (degraded to point-only candidate scoring).
+min_inlier_num: 45
+pose_refinement: 1
+
+plnet:
+  feature_extractor: 2          # XFeat for points
+  line_extractor: 0             # no lines (PLNet not loaded)
+  use_superpoint: 0
+  max_keypoints: 512
+  keypoint_threshold: 0.05
+  remove_borders: 4
+  line_threshold: 0.75
+  line_length_threshold: 50
+  xfeat_input_height: 480
+  xfeat_input_width: 752
+  xfeat_nms_kernel_size: 5
+
+point_matcher:
+  matcher: 3                    # LighterGlue
+  image_width: 752
+  image_height: 480
+  descriptor_dim: 64
+  min_cosine_similarity: 0.0
+  lowe_ratio: 0.0
+  require_mutual_nn: 0
+  onnx_file: ""
+  engine_file: "lighterglue.pt"
+
+pose_estimation:
+  mono_point: 50
+  stereo_point: 75
+  mono_line: 50
+  stereo_line: 75
+  rate: 0.5
+
+ros_publisher:
+  feature: 1
+  feature_topic: "/AirSLAM/feature"
+  frame_pose: 1
+  frame_pose_topic: "/AirSLAM/frame_pose"
+  frame_odometry_topic: "/AirSLAM/LatestOdometry"
+  keyframe: 1
+  keyframe_topic: "/AirSLAM/keyframe"
+  path_topic: "/AirSLAM/odometry"
+  map: 1
+  map_topic: "/AirSLAM/map"
+  mapline: 0
+  mapline_topic: "/AirSLAM/mapline"
+  reloc: 1
+  reloc_topic: "/AirSLAM/reloc"
