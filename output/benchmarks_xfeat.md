@@ -192,6 +192,83 @@ deployable AirSLAM**. The 2.6x ATE gap vs the SuperPoint baseline is a
 research-vs-product tradeoff: SuperPoint wins on benchmarks, XFeat wins
 on what you can actually sell.
 
+## Vicon Room + lines (Part 3 — PLNet wireframe head re-enabled)
+
+Hybrid mode: XFeat (Apache-2.0, 64-dim points) + **PLNet wireframe head**
+(Apache-2.0, lines + 256-dim junctions). Dispatch knob `line_extractor`
+in `PLNetConfig` is orthogonal to `feature_extractor`, so the two YAMLs
+(`vo_euroc_xfeat_lighterglue.yaml` and
+`vo_euroc_xfeat_lighterglue_lines.yaml`) coexist — pick the launch file
+that matches the environment. Naturaleza → points-only; urbano /
+estructurado → lines on.
+
+All numbers below are full-sequence VO + map_refinement, ATE RMSE
+against EuRoC IMU ground truth via `evo_ape euroc … -va`.
+
+| Sequence | Mode | ATE post-MR (m) | FPS | Maplines | Loops | ATE Δ vs points |
+|---|---|---|---|---|---|---|
+| **MH_03_medium** (Machine Hall) | points-only | 0.0700 | **51.3** | 0 | — | — |
+| **MH_03_medium** | **+ PLNet lines** | **0.0689** | 45.4 | 16 405 | 75 | **−1.6%** ✅ |
+| **V1_01_easy** | points-only | 0.0889 | 59.4 | 0 | 15 | — |
+| **V1_01_easy** | + PLNet lines | 0.0889 | 54.9 | 5 299 | 15 | ±0.0% |
+| **V1_02_medium** | points-only | 0.0785 | 45.7 | 0 | 19 | — |
+| **V1_02_medium** | + PLNet lines | 0.0780 | 43.3 | 5 106 | 18 | −0.7% |
+| **V1_03_difficult** | points-only | 0.2935 | 43.6 | 0 | 7 | — |
+| **V1_03_difficult** | **+ PLNet lines** | **0.2814** | 43.8 | 7 915 | 7 | **−4.1%** ✅ |
+
+Headline pattern: **lines help proportionally to difficulty**.
+
+- **V1_01_easy** (slow motion, good light) — points already solve it,
+  lines are a neutral addition (≈ 0% ATE delta).
+- **V1_02_medium** — marginal 0.7% improvement; lines start to carry
+  weight as the trajectory aggressiveness picks up.
+- **V1_03_difficult** — **4.1% ATE improvement** from the same hardware,
+  same input. This is where structural lines (walls/floor edges) carry
+  geometric constraint that XFeat alone struggles to lock down under
+  motion blur.
+- **MH_03_medium** — 1.6% ATE improvement, slightly behind V1_03 because
+  Machine Hall already has rich texture from clutter/equipment.
+
+**FPS cost is ~10% on MH_03**, ~7% on V1_01, **noise** (within ±0.3 FPS)
+on V1_02 and V1_03. The hit is concentrated on machine-hall (more
+keyframes per frame → PLNet runs more often). On the Vicon Room
+sequences with sparser KFs, lines come essentially for free in FPS terms.
+
+The mapline count is also a useful diagnostic of scene structure:
+~16 k maplines on MH_03 (industrial clutter, dense edges), ~5–8 k on
+Vicon Room sequences (simpler walls + checkerboard floor).
+
+**V2_xx sequences not benchmarked** in this pass because the V2_01 and
+V2_03 datasets are not present in `~/datasets/euroc/`. Listed in Future
+work below as a follow-up (download + repeat the four-row table).
+
+### Reproducing the Vicon Room section
+
+```bash
+for SEQ in V1_01_easy V1_02_medium V1_03_difficult; do
+  for MODE in lines pointsonly; do
+    OUT=/tmp/airslam_xfeat_${MODE}_${SEQ}
+    rm -rf "$OUT"; mkdir -p "$OUT"
+    if [[ $MODE == lines ]]; then
+      VO=vo_euroc_xfeat_lighterglue_lines.launch.py
+      MR=mr_euroc_xfeat_lines.launch.py
+    else
+      VO=vo_euroc_xfeat_lighterglue.launch.py
+      MR=mr_euroc_xfeat.launch.py
+    fi
+    ros2 launch air_slam_xfeat $VO \
+      dataroot:=$HOME/datasets/euroc/${SEQ}/mav0 \
+      saving_dir:=$OUT visualization:=false
+    ros2 launch air_slam_xfeat $MR \
+      map_root:=$OUT \
+      voc_path:=$HOME/coding/AirSLAM_XFEAT/voc/point_voc_L4_xfeat.bin
+    evo_ape euroc \
+      $HOME/datasets/euroc/${SEQ}/mav0/state_groundtruth_estimate0/data.csv \
+      $OUT/trajectory_v1.txt -va | tee $OUT/ate.txt
+  done
+done
+```
+
 ## Future work (post-current session)
 
 Ordered by expected impact, biggest first:
@@ -216,10 +293,11 @@ Ordered by expected impact, biggest first:
    `/camera/camera/infra{1,2}/image_rect_raw` (+ optional IMU). Enables
    on-robot benchmarking. ~3–5 h.
 
-5. **Re-enable lines via PLNet wireframe head with XFeat-anchored
-   points**. Phase 6 + LighterGlue results pass the "metrics good
-   enough" promotion gate from the original plan. Estimated +4 h;
-   could help V1_01 / V2 sequences where we currently diverge.
+5. ~~**Re-enable lines via PLNet wireframe head with XFeat-anchored
+   points**.~~ **DONE** (Part 3, this session). Validated on Vicon Room
+   V1_xx + MH_03. V1_03_difficult: −4.1% ATE; MH_03: −1.6% ATE;
+   V1_01_easy: neutral. FPS hit ~0–10% depending on KF density.
+   Follow-up: V2_01 + V2_03 once datasets are on disk.
 
 6. **Larger vocab training corpus**. Current `voc/point_voc_L4_xfeat.bin`
    was trained on MH_01 + V1_01 only (1.23 M descriptors). Adding

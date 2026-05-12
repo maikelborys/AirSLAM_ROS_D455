@@ -113,9 +113,11 @@ SuperPoint baseline.
 - ⚠️ **Vocab trained on MH_01 + V1_01 only** (1.23 M descriptors). MH_02
   isn't in the local EuRoC dataset. Adding it would broaden loop recall
   on unseen scenes.
-- ⚠️ **Lines disabled** (XFeat = points-only this branch). PLNet
-  wireframe head is conditional on Phase 8 metrics passing — they
-  passed; re-enabling lines is on the Future-work list.
+- ✅ **Lines enabled (optional)** via `line_extractor: 1` in YAML.
+  Hybrid mode: XFeat points + PLNet wireframe head. Apache-2.0 clean.
+  Vicon Room V1_03_difficult ATE −4.1% / MH_03 −1.6% / FPS hit
+  0–10%. See `output/benchmarks_xfeat.md` Vicon Room section.
+  Points-only YAML remains for naturaleza / sparse-line scenes.
 - ⚠️ **D455 live-camera path** is on the original `master` branch
   (ROS 1) and not yet cherry-picked into jazzy-xfeat-ros2. Listed in
   Future-work.
@@ -137,9 +139,10 @@ SuperPoint baseline.
    `/camera/camera/infra{1,2}/image_rect_raw` + optional IMU. Enables
    on-robot benchmarking outside EuRoC. ~3-5 h.
 
-4. **Re-enable lines via PLNet wireframe head with XFeat-anchored
-   points**. Phase 6+ metrics passed the promotion gate from the
-   original plan. ~4 h. Should help V2 sequences specifically.
+4. ~~**Re-enable lines via PLNet wireframe head with XFeat-anchored
+   points**.~~ **DONE** (2026-05-12). `line_extractor` YAML knob,
+   Vicon Room V1_03_difficult ATE −4.1%, MH_03 −1.6%, FPS hit 0–10%.
+   V2_01 / V2_03 sweep pending dataset download.
 
 5. **Bigger DBoW2 vocab corpus**. Adding MH_02 + V1_02 + V2_01 to the
    training set (~3 M descriptors total instead of 1.23 M) would

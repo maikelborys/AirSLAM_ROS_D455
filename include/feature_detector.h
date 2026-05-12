@@ -37,6 +37,12 @@ private:
   // and matcher used in XFeat mode (Phase 5/6) ignore those padded rows.
   bool DetectXFeat(cv::Mat& image,
                    Eigen::Matrix<float, 259, Eigen::Dynamic>& features);
+
+  // PLNet wireframe head run for its lines + junctions only (point output
+  // discarded). Used in XFeat/SuperPoint + line_extractor=PLNet hybrid mode.
+  bool DetectPLNetLines(cv::Mat& image,
+                        std::vector<Eigen::Vector4d>& lines,
+                        Eigen::Matrix<float, 259, Eigen::Dynamic>* junctions);
 };
 
 typedef std::shared_ptr<FeatureDetector> FeatureDetectorPtr;

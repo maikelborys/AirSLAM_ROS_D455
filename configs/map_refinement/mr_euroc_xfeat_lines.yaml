@@ -1,0 +1,42 @@
+# Map refinement for XFeat-points + PLNet-lines/junctions VO output.
+# Same as mr_euroc_xfeat.yaml but with mapline publisher enabled so the
+# refined 3D line map is broadcast for RViz inspection.
+#
+# MapRefiner reads junctions from the serialized map produced by VO; no
+# re-detection runs here. The junction DBoW (256-dim PLNet descriptors) is
+# built at refinement time over the loaded junctions — see
+# src/map_refiner.cc:960-999.
+
+point_matcher:
+  matcher: 2                   # 0 = lightglue, 1 = superglue, 2 = MNN (XFeat)
+  image_width: 752
+  image_height: 480
+  descriptor_dim: 64
+  min_cosine_similarity: 0.70
+  lowe_ratio: 0.95
+  require_mutual_nn: 1
+  onnx_file: ""                # MNN has no engine
+  engine_file: ""
+
+optimization:
+  mono_point: 50
+  stereo_point: 75
+  mono_line: 50
+  stereo_line: 75
+  rate: 0.5
+
+ros_publisher:
+  feature: 0
+  feature_topic: "/AirSLAM/feature"
+  frame_pose: 0
+  frame_pose_topic: "/AirSLAM/frame_pose"
+  frame_odometry_topic: "/AirSLAM/LatestOdometry"
+  keyframe: 1
+  keyframe_topic: "/AirSLAM/keyframe"
+  path_topic: "/AirSLAM/odometry"
+  map: 1
+  map_topic: "/AirSLAM/map"
+  mapline: 1                   # show refined 3D lines
+  mapline_topic: "/AirSLAM/mapline"
+  reloc: 0
+  reloc_topic: "/AirSLAM/reloc"

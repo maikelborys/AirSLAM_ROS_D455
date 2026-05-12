@@ -5,8 +5,8 @@
 #include "utils.h"
 
 FeatureDetector::FeatureDetector(const PLNetConfig& plnet_config) : _plnet_config(plnet_config){
-  // Dispatch on feature_extractor — only the selected backbone is built so a
-  // missing plnet_s0.engine cannot break a pure XFeat configuration.
+  // Dispatch on feature_extractor — only the selected point backbone is built
+  // so a missing plnet_s0.engine cannot break a pure XFeat configuration.
   switch (_plnet_config.feature_extractor) {
     case kFeatureExtractorSuperPoint: {
       SuperPointConfig superpoint_config;
@@ -56,6 +56,19 @@ FeatureDetector::FeatureDetector(const PLNetConfig& plnet_config) : _plnet_confi
       break;
     }
   }
+
+  // Hybrid line dispatch — also build PLNet for its wireframe head when
+  // line_extractor==PLNet and the point backbone is not already PLNet.
+  // (When feature_extractor==PLNet, the same _plnet instance produces both
+  // points and lines from a single forward pass, so we skip this branch.)
+  if (_plnet_config.line_extractor == kLineExtractorPLNet &&
+      _plnet_config.feature_extractor != kFeatureExtractorPLNet) {
+    _plnet = std::shared_ptr<PLNet>(new PLNet(_plnet_config));
+    if (!_plnet->build()) {
+      std::cout << "Error in PLNet (line head) building" << std::endl;
+      exit(0);
+    }
+  }
 }
 
 bool FeatureDetector::DetectXFeat(
@@ -74,6 +87,29 @@ bool FeatureDetector::DetectXFeat(
   features.resize(259, N);
   features.setZero();
   features.topRows(kXFeatFeatureRows) = xfeat_features;
+  return true;
+}
+
+bool FeatureDetector::DetectPLNetLines(
+    cv::Mat& image,
+    std::vector<Eigen::Vector4d>& lines,
+    Eigen::Matrix<float, 259, Eigen::Dynamic>* junctions) {
+  // Run PLNet for its wireframe head. We discard PLNet's point output
+  // (XFeat / SuperPoint owns points in hybrid mode). Junctions are 256-dim
+  // PLNet descriptors — independent of the XFeat 64-dim point space; they
+  // feed MapRefiner::BuildJunctionDatabase only.
+  Eigen::Matrix<float, 259, Eigen::Dynamic> features_discard;
+  Eigen::Matrix<float, 259, Eigen::Dynamic> junctions_local;
+  const bool want_junctions = (junctions != nullptr);
+  if (!_plnet->infer(image, features_discard, lines, junctions_local,
+                     want_junctions)) {
+    std::cout << "Failed when running PLNet (line head) inference !"
+              << std::endl;
+    return false;
+  }
+  if (want_junctions) {
+    *junctions = std::move(junctions_local);
+  }
   return true;
 }
 
@@ -101,14 +137,21 @@ bool FeatureDetector::Detect(cv::Mat& image, Eigen::Matrix<float, 259, Eigen::Dy
 
 bool FeatureDetector::Detect(cv::Mat& image, Eigen::Matrix<float, 259, Eigen::Dynamic> &features,
     std::vector<Eigen::Vector4d>& lines){
-  // XFeat / SuperPoint are points-only — lines stay empty in those modes.
+  lines.clear();
+  // Hybrid points + lines: XFeat / SuperPoint for points, PLNet for lines.
   if (_plnet_config.feature_extractor == kFeatureExtractorXFeat) {
-    lines.clear();
-    return DetectXFeat(image, features);
+    if (!DetectXFeat(image, features)) return false;
+    if (_plnet_config.line_extractor == kLineExtractorPLNet) {
+      return DetectPLNetLines(image, lines, nullptr);
+    }
+    return true;
   }
   if (_plnet_config.feature_extractor == kFeatureExtractorSuperPoint) {
-    lines.clear();
-    return _superpoint->infer(image, features);
+    if (!_superpoint->infer(image, features)) return false;
+    if (_plnet_config.line_extractor == kLineExtractorPLNet) {
+      return DetectPLNetLines(image, lines, nullptr);
+    }
+    return true;
   }
   Eigen::Matrix<float, 259, Eigen::Dynamic> junctions;
   bool good_infer = _plnet->infer(image, features, lines, junctions);
@@ -120,16 +163,22 @@ bool FeatureDetector::Detect(cv::Mat& image, Eigen::Matrix<float, 259, Eigen::Dy
 
 bool FeatureDetector::Detect(cv::Mat& image, Eigen::Matrix<float, 259, Eigen::Dynamic> &features,
     std::vector<Eigen::Vector4d>& lines, Eigen::Matrix<float, 259, Eigen::Dynamic>& junctions){
-  // XFeat / SuperPoint paths: points-only. Lines + junctions stay empty.
+  lines.clear();
+  junctions.resize(259, 0);
+  // Hybrid: XFeat / SuperPoint points + PLNet lines + junctions.
   if (_plnet_config.feature_extractor == kFeatureExtractorXFeat) {
-    lines.clear();
-    junctions.resize(259, 0);
-    return DetectXFeat(image, features);
+    if (!DetectXFeat(image, features)) return false;
+    if (_plnet_config.line_extractor == kLineExtractorPLNet) {
+      return DetectPLNetLines(image, lines, &junctions);
+    }
+    return true;
   }
   if (_plnet_config.feature_extractor == kFeatureExtractorSuperPoint) {
-    lines.clear();
-    junctions.resize(259, 0);
-    return _superpoint->infer(image, features);
+    if (!_superpoint->infer(image, features)) return false;
+    if (_plnet_config.line_extractor == kLineExtractorPLNet) {
+      return DetectPLNetLines(image, lines, &junctions);
+    }
+    return true;
   }
   bool good_infer = _plnet->infer(image, features, lines, junctions, true);
   if(!good_infer){

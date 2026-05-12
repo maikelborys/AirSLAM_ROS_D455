@@ -1,0 +1,72 @@
+# XFeat (points) + LighterGlue + PLNet wireframe head (lines/junctions).
+# Sibling of vo_euroc_xfeat_lighterglue.yaml — same point backbone & matcher,
+# but with line_extractor=1 so PLNet runs alongside XFeat for the line head
+# (lines fed to AirSLAM's line BA + junctions fed to MapRefiner's junction
+# DBoW). License posture stays Apache-2.0 (PLNet is from sair-lab/AirSLAM).
+#
+# Cost: ~+4 ms GPU per detect call (PLNet stage 0 + stage 1). Expected FPS
+# ~42-46 vs 51.3 for the points-only headline. ATE should improve on Vicon
+# Room sequences where structural lines are abundant.
+plnet:
+  feature_extractor: 2          # XFeat for points
+  line_extractor: 1             # PLNet wireframe head for lines + junctions
+  use_superpoint: 0
+  max_keypoints: 512            # MUST match the lighterglue.pt trace --num-kpts
+  keypoint_threshold: 0.05
+  remove_borders: 4
+  line_threshold: 0.75
+  line_length_threshold: 50
+  xfeat_input_height: 480
+  xfeat_input_width: 752
+  xfeat_nms_kernel_size: 5
+
+point_matcher:
+  matcher: 3                    # 0=lightglue, 1=superglue, 2=MNN, 3=LighterGlue
+  image_width: 752
+  image_height: 480
+  descriptor_dim: 64
+  min_cosine_similarity: 0.0    # unused for LighterGlue (it has its own gate)
+  lowe_ratio: 0.0
+  require_mutual_nn: 0
+  onnx_file: ""                 # no ONNX path
+  engine_file: "lighterglue.pt" # resolved against model_dir
+
+keyframe:
+  min_init_stereo_feature: 90
+  lost_num_match: 10
+  min_num_match: 30
+  # Same KF-rate tuning as the points-only LighterGlue config. Re-tuning
+  # with lines on is future work — start from the validated sweet spot.
+  max_num_match: 40             # was 80 in the SP baseline
+  tracking_point_rate: 0.40     # was 0.65 in the SP baseline
+  tracking_parallax_rate: 0.20  # was 0.10 in the SP baseline
+
+optimization:
+  tracking:
+    mono_point: 50
+    stereo_point: 75
+    mono_line: 50
+    stereo_line: 75
+    rate: 0.5
+  backend:
+    mono_point: 50
+    stereo_point: 75
+    mono_line: 50
+    stereo_line: 75
+    rate: 0.5
+
+ros_publisher:
+  feature: 1
+  feature_topic: "/AirSLAM/feature"
+  frame_pose: 1
+  frame_pose_topic: "/AirSLAM/frame_pose"
+  frame_odometry_topic: "/AirSLAM/LatestOdometry"
+  keyframe: 1
+  keyframe_topic: "/AirSLAM/keyframe"
+  path_topic: "/AirSLAM/odometry"
+  map: 1
+  map_topic: "/AirSLAM/map"
+  mapline: 1                    # enable line markers (was 0 in XFeat-only)
+  mapline_topic: "/AirSLAM/mapline"
+  reloc: 0
+  reloc_topic: "/AirSLAM/reloc"

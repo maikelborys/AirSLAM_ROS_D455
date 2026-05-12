@@ -16,6 +16,16 @@ enum FeatureExtractor : int {
   kFeatureExtractorXFeat      = 2,
 };
 
+// Line extractor selection — orthogonal to feature_extractor. With XFeat
+// or SuperPoint as the point backbone we can still bolt PLNet on for its
+// wireframe head (lines + junctions). 0 = none (points-only). 1 = PLNet
+// wireframe head. In PLNet feature_extractor mode this is implicit:
+// PLNet's lines are always produced from the same forward pass.
+enum LineExtractor : int {
+  kLineExtractorNone  = 0,
+  kLineExtractorPLNet = 1,
+};
+
 struct PLNetConfig{
   std::string superpoint_onnx;
   std::string superpoint_engine;
@@ -45,9 +55,14 @@ struct PLNetConfig{
   int xfeat_input_width;
   int xfeat_nms_kernel_size;
 
+  // Line extractor dispatch (see LineExtractor enum). Orthogonal to
+  // feature_extractor — enables XFeat-points + PLNet-lines hybrid.
+  int line_extractor;
+
   PLNetConfig() : feature_extractor(kFeatureExtractorPLNet), use_superpoint(0),
                   xfeat_input_height(480), xfeat_input_width(752),
-                  xfeat_nms_kernel_size(5) {}
+                  xfeat_nms_kernel_size(5),
+                  line_extractor(kLineExtractorNone) {}
 
   void Load(const YAML::Node& plnet_node){
     // Accept either feature_extractor (preferred) or use_superpoint
@@ -73,6 +88,18 @@ struct PLNetConfig{
     xfeat_input_height    = plnet_node["xfeat_input_height"].as<int>(480);
     xfeat_input_width     = plnet_node["xfeat_input_width"].as<int>(752);
     xfeat_nms_kernel_size = plnet_node["xfeat_nms_kernel_size"].as<int>(5);
+
+    // line_extractor: explicit knob in YAML wins. Otherwise default is
+    // "PLNet when point backbone is PLNet (it produces lines for free),
+    // none for SuperPoint/XFeat". This keeps existing configs behaviour-
+    // identical: SP/XFeat YAMLs without the knob stay points-only, the
+    // PLNet YAML stays points+lines.
+    if (plnet_node["line_extractor"]) {
+      line_extractor = plnet_node["line_extractor"].as<int>();
+    } else {
+      line_extractor = (feature_extractor == kFeatureExtractorPLNet)
+          ? kLineExtractorPLNet : kLineExtractorNone;
+    }
   }
 
   void SetModelPath(std::string model_dir){
