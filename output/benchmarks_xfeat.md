@@ -269,66 +269,83 @@ for SEQ in V1_01_easy V1_02_medium V1_03_difficult; do
 done
 ```
 
-## Cross-sequence relocalization (V1_03 queries against V1_01 map)
+## Cross-sequence relocalization (V1_03 queries against V1_01 / V1_02 map)
 
-Single-image relocalization mode: load the refined `AirSLAM_mapv1.bin`
-produced by VO+MR on **V1_01_easy** (XFeat + PLNet lines), then query
-each frame of **V1_03_difficult/mav0/cam0/data** independently. Same
-Vicon Room 1 environment, completely different trajectory (slow vs
-aggressive), motion blur on the query side.
+Single-image relocalization mode: load a refined `AirSLAM_mapv1.bin`
+produced by VO+MR on a Vicon Room 1 sequence (XFeat + PLNet lines),
+then query each frame of **V1_03_difficult/mav0/cam0/data**
+independently. Same room, completely different trajectory, motion blur
+on the query side.
 
 Pipeline: XFeat (points) + PLNet (lines+junctions) per query image →
 DBoW query against BOTH the 64-dim XFeat point vocab AND the 256-dim
 PLNet junction vocab → grouped scoring → 2D-3D matching → pose refine.
 Each frame is independent (no temporal prior).
 
-| Metric | Value |
-|---|---|
-| Query frames | 2149 |
-| Reloc successes | **1307 / 2149 = 60.82%** |
-| Per-frame time | ~32-40 ms (~28 Hz) |
-| Median position error (successes) | **0.131 m** |
-| p90 position error (successes) | 0.222 m |
-| Mean position error (successes) | 0.252 m (pulled up by outliers) |
+### Map source matters — V1_01_easy vs V1_02_medium as the reference map
 
-Error distribution (of the 1271 successes that matched GT timestamps):
+Identical query stream (V1_03_difficult frames), identical reloc
+pipeline. Only the underlying refined map changes.
 
-| Threshold | Within |
-|---|---|
-| < 10 cm | 31.5% |
-| < 20 cm | 82.4% |
-| < 30 cm | **94.3%** |
-| < 50 cm | 96.6% |
-| < 1 m   | 97.8% |
+| Metric | Map = V1_01_easy | Map = V1_02_medium | Δ |
+|---|---|---|---|
+| Map maplines | 5 299 | 5 106 | — |
+| Map loop pairs (MR) | 15 | 18 | — |
+| **Reloc recall** | **60.82%** (1307/2149) | **82.04%** (1763/2149) | **+21 pp** ✅ |
+| Per-frame time | ~35 ms (~28 Hz) | ~35 ms (~28 Hz) | — |
+| Median position error | 0.131 m | **0.097 m** | −26% |
+| p90 position error | 0.222 m | **0.181 m** | −18% |
+| Mean position error | 0.252 m | **0.184 m** | −27% |
+| < 10 cm | 31.5% | **52.1%** | +21 pp |
+| < 20 cm | 82.4% | **92.0%** | +10 pp |
+| < 30 cm | 94.3% | **96.5%** | +2 pp |
+| Outliers > 1 m | ~2.2% | **~1.3%** | −0.9 pp |
+| Useful recall (success AND <30 cm) | 55.8% of 2149 | **77.2%** of 2149 | **+21 pp** ✅ |
 
-**True useful recall (success AND <30 cm) ≈ 1199/2149 = 55.8%**
+**Headline: a more aggressive mapping trajectory produces a much better
+relocalization map for difficult queries.** V1_02_medium's trajectory
+samples more viewpoints / orientations of the same room than V1_01_easy,
+so when V1_03's motion-blurred frames look up the map they find a
+neighbour at a similar viewpoint more often. Map coverage matters as
+much as map accuracy for relocalization.
 
-The ~2% outliers (above 1 m) are reloc successes whose inlier count
+This mirrors the earlier-validated DBoW-corpus rule (`CLAUDE.md` hard
+rule "more diverse training corpus → better vocab recall"): for the
+*map* corpus the same diversity logic applies. Mapping with the easy
+trajectory and trying to localize the difficult one is the classic
+"trained on the clean dataset, tested in the wild" failure mode.
+
+The ~1-2% outliers (above 1 m) are reloc successes whose inlier count
 passed the `min_inlier_num: 45` gate but ended up in a wrong part of
 the map — typical failure mode of single-image reloc on motion-blurred
 frames where the point distribution is consistent with multiple map
-poses.
+poses. Tightening `min_inlier_num` would trade recall for fewer
+outliers.
 
 ### Reproducing
 
 ```bash
-# (assumes V1_01_easy map already exists in /tmp/airslam_xfeat_lines_V1_01_easy
-#  from the Vicon Room benchmark above)
-ros2 launch air_slam_xfeat reloc_euroc_xfeat_lines.launch.py
-# launches with defaults:
-#   dataroot=$HOME/datasets/euroc/V1_03_difficult/mav0/cam0/data
-#   map_root=/tmp/airslam_xfeat_lines_V1_01_easy
-#   voc_path=<pkg_share>/voc/point_voc_L4_xfeat.bin
-# saves /tmp/airslam_xfeat_lines_V1_01_easy/reloc_V1_03.txt with
-# "success <timestamp> tx ty tz qx qy qz qw" or "fail <timestamp> ..." lines.
+# Re-map V1_02_medium with lines if you don't already have its mapv1:
+ros2 launch air_slam_xfeat vo_euroc_xfeat_lighterglue_lines.launch.py \
+  dataroot:=$HOME/datasets/euroc/V1_02_medium/mav0 \
+  saving_dir:=/tmp/airslam_xfeat_lines_V1_02_medium visualization:=false
+ros2 launch air_slam_xfeat mr_euroc_xfeat_lines.launch.py \
+  map_root:=/tmp/airslam_xfeat_lines_V1_02_medium \
+  voc_path:=$HOME/coding/AirSLAM_XFEAT/voc/point_voc_L4_xfeat.bin
+
+# Reloc V1_03 queries against the V1_02 map (with RViz):
+ros2 launch air_slam_xfeat reloc_euroc_xfeat_lines.launch.py \
+  map_root:=/tmp/airslam_xfeat_lines_V1_02_medium \
+  traj_path:=/tmp/airslam_xfeat_lines_V1_02_medium/reloc_V1_03.txt \
+  visualization:=true
 
 # Extract successes and run evo_ape:
 awk '/^success/ {printf "%.9f %s %s %s %s %s %s %s\n", $2/1e9, $3, $4, $5, $6, $7, $8, $9}' \
-  /tmp/airslam_xfeat_lines_V1_01_easy/reloc_V1_03.txt \
-  > /tmp/airslam_xfeat_lines_V1_01_easy/reloc_V1_03_success.tum
+  /tmp/airslam_xfeat_lines_V1_02_medium/reloc_V1_03.txt \
+  > /tmp/airslam_xfeat_lines_V1_02_medium/reloc_V1_03_success.tum
 evo_ape euroc \
   $HOME/datasets/euroc/V1_03_difficult/mav0/state_groundtruth_estimate0/data.csv \
-  /tmp/airslam_xfeat_lines_V1_01_easy/reloc_V1_03_success.tum -va
+  /tmp/airslam_xfeat_lines_V1_02_medium/reloc_V1_03_success.tum -va
 ```
 
 ## Future work (post-current session)
