@@ -37,6 +37,13 @@ using tensorrt_buffer::TensorRTUniquePtr;
 // 3 leading rows (score, x, y) + 64 descriptor rows.
 inline constexpr int kXFeatFeatureRows = 67;
 
+// Forward declaration — opaque handle to the CUDA scratch state
+// allocated in src/xfeat_postproc.cu. Kept out of the header so the
+// rest of AirSLAM is not exposed to CUDA headers.
+namespace xfeat_postproc {
+  struct Output;
+}
+
 class XFeat {
  public:
   explicit XFeat(const XFeatConfig& xfeat_config);
@@ -68,6 +75,9 @@ class XFeat {
   std::shared_ptr<nvinfer1::ICudaEngine> engine_;
   std::shared_ptr<nvinfer1::IExecutionContext> context_;
   cudaStream_t stream_;
+  // Opaque handle into xfeat_postproc::Allocate / Run / Free. nullptr means
+  // CUDA post-proc is disabled and we fall through to the CPU path.
+  void* postproc_state_{nullptr};
 
   bool construct_network(
       TensorRTUniquePtr<nvinfer1::IBuilder>& builder,
@@ -78,6 +88,13 @@ class XFeat {
   bool process_input(const tensorrt_buffer::BufferManager& buffers,
                      const cv::Mat& image);
   bool process_output(
+      const tensorrt_buffer::BufferManager& buffers,
+      Eigen::Matrix<float, kXFeatFeatureRows, Eigen::Dynamic>& features);
+  // CUDA post-proc path. Reads device buffers via getDeviceBuffer (skips
+  // the H2D copy of the dense outputs entirely) and runs the four kernels
+  // in src/xfeat_postproc.cu. Output is bit-equivalent to process_output()
+  // within float32 rounding (rsqrtf vs sqrt is the only intentional swap).
+  bool process_output_cuda(
       const tensorrt_buffer::BufferManager& buffers,
       Eigen::Matrix<float, kXFeatFeatureRows, Eigen::Dynamic>& features);
 };

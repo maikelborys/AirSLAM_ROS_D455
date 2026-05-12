@@ -70,6 +70,7 @@ add_library(air_slam_core_lib SHARED
   src/light_glue.cpp
   src/plnet.cpp
   src/xfeat.cpp
+  src/xfeat_postproc.cu
   src/lighter_glue.cc
   src/feature_detector.cc
   src/point_matcher.cc

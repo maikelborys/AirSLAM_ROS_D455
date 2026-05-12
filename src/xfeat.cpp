@@ -32,6 +32,8 @@
 
 #include <opencv2/opencv.hpp>
 
+#include "xfeat_postproc.h"
+
 using namespace tensorrt_log;
 using namespace tensorrt_buffer;
 
@@ -77,14 +79,33 @@ XFeat::XFeat(const XFeatConfig& xfeat_config)
 }
 
 XFeat::~XFeat() {
+  if (postproc_state_) {
+    xfeat_postproc::Free(postproc_state_);
+    postproc_state_ = nullptr;
+  }
   if (stream_) {
     cudaStreamDestroy(stream_);
     stream_ = nullptr;
   }
 }
 
+namespace {
+void EnsurePostprocState(void*& slot, const XFeatConfig& cfg) {
+  if (slot) return;
+  const int H = cfg.input_height;
+  const int W = cfg.input_width;
+  const int Hp = H / 8;
+  const int Wp = W / 8;
+  // Upper bound on raw NMS-passing candidates. ~max_keypoints * 4 is safe
+  // even on highly textured frames — the typical hit rate is < 2K.
+  const int max_cand = std::max(cfg.max_keypoints * 4, 8192);
+  slot = xfeat_postproc::Allocate(H, W, Hp, Wp, max_cand, cfg.max_keypoints);
+}
+}  // namespace
+
 bool XFeat::build() {
   if (deserialize_engine()) {
+    EnsurePostprocState(postproc_state_, xfeat_config_);
     return true;
   }
   auto builder = TensorRTUniquePtr<nvinfer1::IBuilder>(
@@ -127,6 +148,7 @@ bool XFeat::build() {
   feats_dims_  = network->getOutput(0)->getDimensions();
   keypts_dims_ = network->getOutput(1)->getDimensions();
   rel_dims_    = network->getOutput(2)->getDimensions();
+  EnsurePostprocState(postproc_state_, xfeat_config_);
   return true;
 }
 
@@ -177,9 +199,16 @@ bool XFeat::infer(
   if (!buffers.setTensorAddresses(context_.get())) return false;
   buffers.copyInputToDeviceAsync(stream_);
   if (!context_->enqueueV3(stream_)) return false;
-  buffers.copyOutputToHostAsync(stream_);
-  if (cudaStreamSynchronize(stream_) != cudaSuccess) return false;
-  if (!process_output(buffers, features)) return false;
+  if (postproc_state_) {
+    // CUDA post-proc path: skip the D2H copy of the 65+64+1 = 130-channel
+    // outputs (~1.5 MiB) and read them directly from the device buffers.
+    if (cudaStreamSynchronize(stream_) != cudaSuccess) return false;
+    if (!process_output_cuda(buffers, features)) return false;
+  } else {
+    buffers.copyOutputToHostAsync(stream_);
+    if (cudaStreamSynchronize(stream_) != cudaSuccess) return false;
+    if (!process_output(buffers, features)) return false;
+  }
   return true;
 }
 
@@ -311,6 +340,38 @@ bool XFeat::process_output(
     const float inv_norm = 1.0f / (std::sqrt(norm_sq) + 1e-12f);
     for (int d = 0; d < 64; ++d) {
       features(3 + d, i) = desc[d] * inv_norm;
+    }
+  }
+  return true;
+}
+
+bool XFeat::process_output_cuda(
+    const BufferManager& buffers,
+    Eigen::Matrix<float, kXFeatFeatureRows, Eigen::Dynamic>& features) {
+  const auto& names = xfeat_config_.output_tensor_names;
+  const float* d_feats  = static_cast<const float*>(buffers.getDeviceBuffer(names[0]));
+  const float* d_keypts = static_cast<const float*>(buffers.getDeviceBuffer(names[1]));
+  const float* d_rel    = static_cast<const float*>(buffers.getDeviceBuffer(names[2]));
+
+  xfeat_postproc::Output out;
+  if (!xfeat_postproc::Run(postproc_state_,
+                            d_keypts, d_feats, d_rel,
+                            xfeat_config_.remove_borders,
+                            xfeat_config_.keypoint_threshold,
+                            xfeat_config_.nms_kernel_size,
+                            xfeat_config_.max_keypoints,
+                            stream_, out)) {
+    return false;
+  }
+
+  const int K = out.N;
+  features.resize(kXFeatFeatureRows, K);
+  for (int i = 0; i < K; ++i) {
+    features(0, i) = out.scores[i];
+    features(1, i) = out.xs[i] * w_scale_;
+    features(2, i) = out.ys[i] * h_scale_;
+    for (int d = 0; d < 64; ++d) {
+      features(3 + d, i) = out.descriptors[static_cast<size_t>(i) * 64 + d];
     }
   }
   return true;
