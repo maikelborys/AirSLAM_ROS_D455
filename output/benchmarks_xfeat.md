@@ -269,6 +269,68 @@ for SEQ in V1_01_easy V1_02_medium V1_03_difficult; do
 done
 ```
 
+## Cross-sequence relocalization (V1_03 queries against V1_01 map)
+
+Single-image relocalization mode: load the refined `AirSLAM_mapv1.bin`
+produced by VO+MR on **V1_01_easy** (XFeat + PLNet lines), then query
+each frame of **V1_03_difficult/mav0/cam0/data** independently. Same
+Vicon Room 1 environment, completely different trajectory (slow vs
+aggressive), motion blur on the query side.
+
+Pipeline: XFeat (points) + PLNet (lines+junctions) per query image →
+DBoW query against BOTH the 64-dim XFeat point vocab AND the 256-dim
+PLNet junction vocab → grouped scoring → 2D-3D matching → pose refine.
+Each frame is independent (no temporal prior).
+
+| Metric | Value |
+|---|---|
+| Query frames | 2149 |
+| Reloc successes | **1307 / 2149 = 60.82%** |
+| Per-frame time | ~32-40 ms (~28 Hz) |
+| Median position error (successes) | **0.131 m** |
+| p90 position error (successes) | 0.222 m |
+| Mean position error (successes) | 0.252 m (pulled up by outliers) |
+
+Error distribution (of the 1271 successes that matched GT timestamps):
+
+| Threshold | Within |
+|---|---|
+| < 10 cm | 31.5% |
+| < 20 cm | 82.4% |
+| < 30 cm | **94.3%** |
+| < 50 cm | 96.6% |
+| < 1 m   | 97.8% |
+
+**True useful recall (success AND <30 cm) ≈ 1199/2149 = 55.8%**
+
+The ~2% outliers (above 1 m) are reloc successes whose inlier count
+passed the `min_inlier_num: 45` gate but ended up in a wrong part of
+the map — typical failure mode of single-image reloc on motion-blurred
+frames where the point distribution is consistent with multiple map
+poses.
+
+### Reproducing
+
+```bash
+# (assumes V1_01_easy map already exists in /tmp/airslam_xfeat_lines_V1_01_easy
+#  from the Vicon Room benchmark above)
+ros2 launch air_slam_xfeat reloc_euroc_xfeat_lines.launch.py
+# launches with defaults:
+#   dataroot=$HOME/datasets/euroc/V1_03_difficult/mav0/cam0/data
+#   map_root=/tmp/airslam_xfeat_lines_V1_01_easy
+#   voc_path=<pkg_share>/voc/point_voc_L4_xfeat.bin
+# saves /tmp/airslam_xfeat_lines_V1_01_easy/reloc_V1_03.txt with
+# "success <timestamp> tx ty tz qx qy qz qw" or "fail <timestamp> ..." lines.
+
+# Extract successes and run evo_ape:
+awk '/^success/ {printf "%.9f %s %s %s %s %s %s %s\n", $2/1e9, $3, $4, $5, $6, $7, $8, $9}' \
+  /tmp/airslam_xfeat_lines_V1_01_easy/reloc_V1_03.txt \
+  > /tmp/airslam_xfeat_lines_V1_01_easy/reloc_V1_03_success.tum
+evo_ape euroc \
+  $HOME/datasets/euroc/V1_03_difficult/mav0/state_groundtruth_estimate0/data.csv \
+  /tmp/airslam_xfeat_lines_V1_01_easy/reloc_V1_03_success.tum -va
+```
+
 ## Future work (post-current session)
 
 Ordered by expected impact, biggest first:
